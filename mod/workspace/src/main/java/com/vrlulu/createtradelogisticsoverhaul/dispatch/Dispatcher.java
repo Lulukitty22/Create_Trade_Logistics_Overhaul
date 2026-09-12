@@ -136,6 +136,14 @@ public final class Dispatcher {
                         List.of(), "no idle train on that track network"));
                 continue;
             }
+            // Create's package instructions quietly refuse to run without one, so the train would
+            // just sit there. Better to say why than to send it and watch nothing happen.
+            if (!courier.hasForwardConductor() && !courier.hasBackwardConductor()) {
+                plans.add(new Plan(courier.name.getString(), null, pickup.name, drop.name,
+                        waiting.toAddress(), waiting.count(), List.of(),
+                        "train '" + courier.name.getString() + "' has no conductor"));
+                continue;
+            }
             List<String> stops = stopsFor(pickup, drop, waiting.toAddress());
             plans.add(new Plan(courier.name.getString(), courier.id, pickup.name, drop.name,
                     waiting.toAddress(), waiting.count(), stops, null));
@@ -175,13 +183,19 @@ public final class Dispatcher {
         if (pickup == null || drop == null) {
             return false;
         }
+        // Name both stations explicitly. Create's fetch and deliver instructions find a station by
+        // themselves - any station holding a matching package - so on their own they undo the point
+        // of dispatching: the train would go wherever Create fancied rather than where it was sent.
+        // This also makes the schedule match the plan the map showed, stop for stop.
         if (stationNamed(pickup.name + REVERSE_SUFFIX) != null) {
             schedule.entries.add(destination(pickup.name + REVERSE_SUFFIX, registries));
         }
+        schedule.entries.add(destination(pickup.name, registries));
         schedule.entries.add(fetchPackages(plan.address(), registries));
         if (stationNamed(drop.name + REVERSE_SUFFIX) != null) {
             schedule.entries.add(destination(drop.name + REVERSE_SUFFIX, registries));
         }
+        schedule.entries.add(destination(drop.name, registries));
         schedule.entries.add(deliverPackages());
         train.runtime.setSchedule(schedule, true);
         CreateTradeLogisticsOverhaul.LOG.info("Dispatched {} : {} -> {} for {}",

@@ -159,8 +159,10 @@ public class LogisticsTerminalBlockEntity extends StockCheckingBlockEntity {
             settings.name = tag.getString("Name");
             settings.address = tag.getString("Address");
         }
-        // Terminals from before this block joined the network properly kept the id themselves.
-        if (behaviour != null && behaviour.freqId == null && tag.hasUUID("Network")) {
+        // Terminals saved before this block joined the network properly kept the id themselves.
+        // The test can't be "freqId is null": Create hands every behaviour a fresh random id in its
+        // constructor, so an old terminal would silently come back on an empty network of its own.
+        if (behaviour != null && !tag.hasUUID("Freq") && tag.hasUUID("Network")) {
             behaviour.freqId = tag.getUUID("Network");
         }
     }
