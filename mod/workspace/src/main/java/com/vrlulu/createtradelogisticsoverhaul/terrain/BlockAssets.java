@@ -156,6 +156,7 @@ public class BlockAssets {
         // A non-liquid block holding fluid (waterlogged slab, kelp, seagrass) still needs water drawn.
         boolean waterlogged = !state.getFluidState().isEmpty();
         int[] faces = new int[6];
+        boolean[] found = new boolean[6];
         int tintMask = 0;
         int rot = 0;
         boolean anyFace = false;
@@ -163,6 +164,7 @@ public class BlockAssets {
             TextureAtlasSprite sprite = spriteOf(state, DIRS[d]);
             if (sprite != null) {
                 faces[d] = layerFor(sprite, leaves);
+                found[d] = true;
                 anyFace = true;
                 if (isTinted(state, DIRS[d])) {
                     tintMask |= 1 << d;
@@ -170,9 +172,20 @@ public class BlockAssets {
                 rot |= faceRotation(state, DIRS[d], d) << (2 * d);
             }
         }
-        if (!anyFace) {
+        // Any face we found no sprite for takes the block's own particle texture. Cross-shaped
+        // plants are the reason: short grass has quads on its diagonal planes but none facing up or
+        // down, so those faces would keep layer 0 - the missing texture - and a field of grass seen
+        // from above reads as a magenta plane once it's drawn as a cube at a coarse LOD.
+        if (!anyFace || hasUnset(found)) {
             int particle = layerFor(particleOf(state), leaves);
-            java.util.Arrays.fill(faces, particle);
+            if (particle == 0 && anyFace) {
+                particle = firstFound(faces, found);
+            }
+            for (int d = 0; d < 6; d++) {
+                if (!found[d]) {
+                    faces[d] = particle;
+                }
+            }
         }
         if (!fullCube) {
             // Plants, torches, rails, slabs, stairs, fences...: drawn from their real quads up close,
@@ -186,6 +199,24 @@ public class BlockAssets {
         }
         int kind = leaves || state.canOcclude() ? TerrainPalette.KIND_SOLID : TerrainPalette.KIND_GLASS;
         return new BlockInfo(kind, faces, tintMask, true, -1, rot, waterlogged);
+    }
+
+    private static boolean hasUnset(boolean[] found) {
+        for (boolean f : found) {
+            if (!f) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static int firstFound(int[] faces, boolean[] found) {
+        for (int d = 0; d < 6; d++) {
+            if (found[d]) {
+                return faces[d];
+            }
+        }
+        return 0;
     }
 
     /**

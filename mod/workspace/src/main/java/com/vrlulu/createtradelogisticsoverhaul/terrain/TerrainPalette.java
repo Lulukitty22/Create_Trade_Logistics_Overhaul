@@ -146,6 +146,15 @@ public class TerrainPalette {
     /** Grass, foliage and water colours for the biome the voxel is actually in. */
     private static int[] tintFor(BlockState state, Mapper mapper, int biomeId) {
         int packed = 0xFFFFFF;
+        // Spruce and birch leaves ignore the biome and use a fixed colour, exactly as the game's own
+        // BlockColors table does. Without this they take the biome's foliage colour, and a pack like
+        // Terralith - whose forested_highlands declares a red foliage colour - turns pine forests red.
+        if (state.getBlock() == net.minecraft.world.level.block.Blocks.SPRUCE_LEAVES) {
+            return unpack(net.minecraft.world.level.FoliageColor.getEvergreenColor());
+        }
+        if (state.getBlock() == net.minecraft.world.level.block.Blocks.BIRCH_LEAVES) {
+            return unpack(net.minecraft.world.level.FoliageColor.getBirchColor());
+        }
         try {
             Biome biome = Minecraft.getInstance().level.registryAccess()
                     .registryOrThrow(Registries.BIOME)
@@ -159,6 +168,10 @@ public class TerrainPalette {
         } catch (Throwable ignored) {
             // keep white
         }
+        return unpack(packed);
+    }
+
+    private static int[] unpack(int packed) {
         return new int[]{(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF};
     }
 
