@@ -1,6 +1,7 @@
 package com.vrlulu.createtradelogisticsoverhaul.web;
 
 import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import com.vrlulu.createtradelogisticsoverhaul.CreateTradeLogisticsOverhaul;
 
@@ -32,6 +33,7 @@ public class MapWebServer {
 
     private static final int PORT_ATTEMPTS = 10;
 
+    private final TerrainApi terrain = new TerrainApi();
     private final int basePort;
     private final List<HttpServer> servers = new ArrayList<>();
     private int port = -1;
@@ -79,6 +81,12 @@ public class MapWebServer {
         HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getByName(host), port), 0);
         server.createContext("/", this::handleStatic);
         server.createContext("/api/status", this::handleStatus);
+        server.createContext("/api/world", wrap(terrain::world));
+        server.createContext("/api/palette", wrap(terrain::palette));
+        server.createContext("/api/terrain/roots", wrap(terrain::roots));
+        server.createContext("/api/terrain/sections", wrap(terrain::sections));
+        server.createContext("/api/assets/textures", wrap(terrain::textures));
+        server.createContext("/api/assets/models", wrap(terrain::models));
         server.setExecutor(pool);
         server.start();
         return server;
@@ -113,6 +121,26 @@ public class MapWebServer {
             String ext = path.substring(path.lastIndexOf('.') + 1).toLowerCase();
             send(ex, 200, TYPES.getOrDefault(ext, "application/octet-stream"), in.readAllBytes());
         }
+    }
+
+    /** Keeps one failing request from killing the handler thread silently. */
+    private HttpHandler wrap(ThrowingHandler handler) {
+        return ex -> {
+            try {
+                handler.handle(ex);
+            } catch (Throwable t) {
+                CreateTradeLogisticsOverhaul.LOG.error("Map API error on {}", ex.getRequestURI(), t);
+                byte[] body = ("{\"error\":\"" + String.valueOf(t).replace("\"", "'") + "\"}")
+                        .getBytes(StandardCharsets.UTF_8);
+                send(ex, 500, "application/json", body);
+            } finally {
+                ex.close();
+            }
+        };
+    }
+
+    private interface ThrowingHandler {
+        void handle(HttpExchange ex) throws Exception;
     }
 
     private void send(HttpExchange ex, int code, String type, byte[] body) throws IOException {

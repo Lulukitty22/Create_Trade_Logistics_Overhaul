@@ -383,6 +383,9 @@ async function loadWorld(first) {
   ui.status.textContent = 'Loading world…';
   world = await (await fetch('/api/world')).json();
   ui.name.textContent = world.name;
+  if (world.textures === false) {          // server has no texture/model assets (mod, for now)
+    ui.textures.checked = false; ui.textures.disabled = true; shared.useTex.value = 0;
+  }
   for (const n of nodes.values()) disposeNodeMeshes(n);
   nodes = new Map(); visible = new Set(); fetchQueue.clear(); meshQueue.clear(); gen++;
   ui.status.textContent = 'Loading textures and models…';
