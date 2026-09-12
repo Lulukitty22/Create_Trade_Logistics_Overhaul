@@ -22,6 +22,17 @@
         "C:\\Users\\Nicol\\AppData\\Roaming\\ModrinthApp\\profiles\\Create Aeronautics\\saves\\New World (2)"
       ],
       "port": 8766
+    },
+    {
+      "name": "logistics-map-terminals",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "prototype/serve.py",
+        "--port",
+        "8767",
+        "--fake-terminals"
+      ],
+      "port": 8767
     }
   ]
 }

@@ -409,6 +409,7 @@ async function loadWorld(first) {
   }
   lastChange = world.lastChange ? world.lastChange * 1000 : null;
   terminals.refresh();
+  terminals.refreshDispatch();
   selectionDirty = true;
 }
 
@@ -428,7 +429,7 @@ function connectLive() {
     selectionDirty = true;
   });
   es.addEventListener('resync', () => loadWorld(false));
-  es.addEventListener('terminals', () => terminals.refresh());
+  es.addEventListener('terminals', () => { terminals.refresh(); terminals.refreshDispatch(); });
   es.addEventListener('order', (e) => {
     const d = JSON.parse(e.data);
     terminals.setStatus(d.message, false);
@@ -565,7 +566,11 @@ function animate() {
   frames++;
   if (now - fpsTime > 500) {
     fps = Math.round(frames * 1000 / (now - fpsTime)); frames = 0; fpsTime = now; updateStats();
-    if (now - lastTerminalPoll > 5000) { lastTerminalPoll = now; terminals.refresh(); }
+    if (now - lastTerminalPoll > 5000) {
+      lastTerminalPoll = now;
+      terminals.refresh();
+      terminals.refreshDispatch();
+    }
   }
 }
 

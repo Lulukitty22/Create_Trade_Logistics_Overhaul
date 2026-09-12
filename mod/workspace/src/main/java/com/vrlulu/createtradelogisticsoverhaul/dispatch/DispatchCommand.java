@@ -48,11 +48,32 @@ public final class DispatchCommand {
                 .executes(context -> report(context.getSource(), false))
                 .then(Commands.literal("run").executes(context -> report(context.getSource(), true))));
 
+        root.then(Commands.literal("auto")
+                .executes(context -> {
+                    context.getSource().sendSuccess(() -> Component.literal("Automatic dispatch is "
+                            + (DispatchService.enabled() ? "ON" : "OFF")
+                            + " (terminals also need their own 'auto dispatch' setting)"), false);
+                    return 1;
+                })
+                .then(Commands.literal("on").executes(context -> {
+                    DispatchService.setEnabled(true);
+                    context.getSource().sendSuccess(() -> Component.literal(
+                            "Automatic dispatch ON - terminals with auto dispatch will send trains")
+                            .withStyle(ChatFormatting.GREEN), true);
+                    return 1;
+                }))
+                .then(Commands.literal("off").executes(context -> {
+                    DispatchService.setEnabled(false);
+                    context.getSource().sendSuccess(() -> Component.literal("Automatic dispatch OFF")
+                            .withStyle(ChatFormatting.YELLOW), true);
+                    return 1;
+                })));
+
         event.getDispatcher().register(root);
     }
 
     private static int report(CommandSourceStack source, boolean actuallyRun) {
-        List<Dispatcher.Plan> plans = Dispatcher.plan();
+        List<Dispatcher.Plan> plans = Dispatcher.plan(source.getServer());
         if (plans.isEmpty()) {
             source.sendSuccess(() -> Component.literal("Nothing to dispatch: no packages are waiting"), false);
             return 0;

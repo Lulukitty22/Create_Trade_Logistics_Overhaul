@@ -47,13 +47,30 @@
   .stock-row { display: grid; grid-template-columns: 1fr auto 52px auto; gap: 6px; align-items: center; padding: 3px 0; border-top: 1px solid var(--line); }
   .sname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .scount { color: var(--muted); font-variant-numeric: tabular-nums; }
-  .sqty, #stock-search, #order-address { background: rgba(255,255,255,0.06); border: 1px solid var(--line); border-radius: 5px; color: var(--text); font: inherit; padding: 3px 6px; width: 100%; }
+  .sqty, #stock-search, #order-address, .f input, .f select, .frow input, .frow select { background: rgba(255,255,255,0.06); border: 1px solid var(--line); border-radius: 5px; color: var(--text); font: inherit; padding: 3px 6px; width: 100%; }
+  #terminal-body { overflow-y: auto; }
+  #terminal-tabs { display: flex; gap: 4px; margin: 6px 0; }
+  .tab { width: auto; margin: 0; padding: 2px 10px; font-size: 11px; text-transform: capitalize; }
+  .tab.on { border-color: var(--accent); color: var(--accent); }
+  .f { display: grid; grid-template-columns: 92px 1fr; gap: 6px; align-items: center; margin: 4px 0; }
+  .f span { color: var(--muted); font-size: 11px; }
+  .f input[type=checkbox] { width: 15px; }
+  .fhead { margin: 9px 0 4px; font-size: 11px; color: var(--accent); display: flex; justify-content: space-between; align-items: center; }
+  .frow { display: grid; grid-template-columns: 1fr 58px 58px auto; gap: 4px; margin: 3px 0; }
+  .mini { width: auto; margin: 0; padding: 1px 7px; font-size: 11px; }
   .sorder { width: auto; margin: 0; padding: 3px 8px; font-size: 11px; }
   #order-status { font-size: 11px; min-height: 15px; color: var(--muted); margin-top: 6px; }
   #order-status.pending { color: var(--accent); }
   #terminal-back { width: auto; padding: 2px 8px; font-size: 11px; margin: 0 0 6px; }
   /* id selectors outrank [hidden]{display:none}, so restore it explicitly */
-  #terminals[hidden], #terminal-detail[hidden], #terminal-list[hidden] { display: none; }
+  #terminals[hidden], #terminal-detail[hidden], #terminal-list[hidden], #dispatch[hidden] { display: none; }
+  #dispatch { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 2px; }
+  #dispatch-runs { overflow-y: auto; max-height: 190px; }
+  .run { display: grid; grid-template-columns: 1fr auto; gap: 2px 6px; padding: 4px 0; cursor: pointer; border-top: 1px solid var(--line); }
+  .run:hover { background: rgba(255,255,255,0.05); }
+  .run .rnote { grid-column: 1 / -1; color: var(--muted); font-size: 11px; }
+  .run.blocked .rnote { color: #e08a6a; }
+  .map-label.wanted { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(224,160,64,0.22); }
   #map-labels { position: absolute; inset: 0; pointer-events: none; }
   .map-label { position: absolute; transform: translate(-50%, -100%); pointer-events: auto; cursor: pointer;
     background: rgba(18,20,26,0.85); border: 1px solid var(--line); border-radius: 6px; padding: 2px 7px;
@@ -83,12 +100,17 @@
 <div id="terminals" class="panel" hidden>
   <h2>Logistics terminals</h2>
   <div id="terminal-list"></div>
+  <div id="dispatch" hidden>
+    <div class="fhead">Dispatch <button id="dispatch-run" class="mini">Send all ready</button></div>
+    <div id="dispatch-summary" class="tmeta"></div>
+    <div id="dispatch-runs"></div>
+  </div>
   <div id="terminal-detail" hidden>
     <button id="terminal-back">&larr; all terminals</button>
     <div id="terminal-title"></div>
     <div class="row"><label for="order-address">Deliver to</label><input id="order-address" placeholder="PD-C01-B02"></div>
-    <div class="row"><label for="stock-search">Search</label><input id="stock-search" placeholder="iron"></div>
-    <div id="terminal-stock"></div>
+    <div id="terminal-tabs"></div>
+    <div id="terminal-body"></div>
     <div id="order-status"></div>
   </div>
 </div>

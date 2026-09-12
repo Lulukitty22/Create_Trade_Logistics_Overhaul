@@ -89,6 +89,15 @@ public final class Dispatcher {
      * Looks only; call {@link #assign} to actually send a train.
      */
     public static List<Plan> plan() {
+        return plan(null);
+    }
+
+    /**
+     * Plans the runs. With a server, legs that leave a railway are routed to that railway's
+     * interchange terminal (a post office declaring its other side), so cross-city freight moves
+     * one leg at a time instead of being refused.
+     */
+    public static List<Plan> plan(net.minecraft.server.MinecraftServer server) {
         List<Plan> plans = new ArrayList<>();
         for (Waiting waiting : waitingPackages()) {
             GlobalStation pickup = stationNamed(waiting.atStation());
@@ -102,10 +111,24 @@ public final class Dispatcher {
                 continue;
             }
             TrackGraph graph = graphOf(pickup);
-            if (graph == null || graphOf(drop) != graph) {
-                plans.add(new Plan("-", null, pickup.name, drop.name, waiting.toAddress(), waiting.count(),
-                        List.of(), "different track networks: needs an interchange (not built yet)"));
+            if (graph == null) {
                 continue;
+            }
+            if (graphOf(drop) != graph) {
+                // Different railways: hand the package to the interchange on this one (the post
+                // office), and let its own leg carry on from there.
+                GlobalStation handoff = interchangeOn(graph, server);
+                if (handoff == null) {
+                    plans.add(new Plan("-", null, pickup.name, drop.name, waiting.toAddress(), waiting.count(),
+                            List.of(), "different track networks and no interchange terminal on this one"));
+                    continue;
+                }
+                if (handoff.name.equals(pickup.name)) {
+                    plans.add(new Plan("-", null, pickup.name, drop.name, waiting.toAddress(), waiting.count(),
+                            List.of(), "waiting at the interchange: the hand-off is yours to build"));
+                    continue;
+                }
+                drop = handoff;         // this leg only goes as far as the interchange
             }
             Train courier = freeTrainOn(graph);
             if (courier == null) {
@@ -184,6 +207,28 @@ public final class Dispatcher {
 
     private static ScheduleEntry deliverPackages() {
         return new ScheduleEntry(new DeliverPackagesInstruction(), new ArrayList<>());
+    }
+
+    /** The station of an interchange terminal (role POST_OFFICE with an other side) on this railway. */
+    private static GlobalStation interchangeOn(TrackGraph graph, net.minecraft.server.MinecraftServer server) {
+        if (server == null) {
+            return null;
+        }
+        for (net.minecraft.server.level.ServerLevel level : server.getAllLevels()) {
+            for (com.vrlulu.createtradelogisticsoverhaul.logistics.LogisticsTerminalBlockEntity terminal
+                    : com.vrlulu.createtradelogisticsoverhaul.logistics.TerminalRegistry.forLevel(level).loaded(level)) {
+                var settings = terminal.settings();
+                if (settings.role != com.vrlulu.createtradelogisticsoverhaul.logistics.TerminalSettings.Role.POST_OFFICE
+                        || settings.address.isBlank()) {
+                    continue;
+                }
+                GlobalStation station = stationNamed(settings.address);
+                if (station != null && graphOf(station) == graph) {
+                    return station;
+                }
+            }
+        }
+        return null;
     }
 
     // ------------------------------------------------------------------ lookups

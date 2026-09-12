@@ -18,6 +18,8 @@ public final class ClientTerminals {
     private static volatile List<Payloads.TerminalInfo> terminals = List.of();
     private static volatile long updatedAt;
     private static volatile long requestedAt;
+    private static volatile String dispatchJson = "{}";
+    private static volatile boolean autoDispatch;
 
     private ClientTerminals() {
     }
@@ -46,6 +48,32 @@ public final class ClientTerminals {
         if (Minecraft.getInstance().getConnection() != null) {
             PacketDistributor.sendToServer(new Payloads.PlaceOrder(terminal, item, count, address));
         }
+    }
+
+    public static void updateSettings(net.minecraft.core.BlockPos terminal, String json) {
+        if (Minecraft.getInstance().getConnection() != null) {
+            PacketDistributor.sendToServer(new Payloads.UpdateTerminal(terminal, json));
+        }
+    }
+
+    public static String dispatchJson() {
+        return dispatchJson;
+    }
+
+    public static boolean autoDispatch() {
+        return autoDispatch;
+    }
+
+    public static void requestDispatch(boolean run) {
+        if (Minecraft.getInstance().getConnection() != null) {
+            PacketDistributor.sendToServer(new Payloads.RequestDispatch(run));
+        }
+    }
+
+    static void acceptDispatch(Payloads.DispatchStatus status) {
+        dispatchJson = status.json();
+        autoDispatch = status.autoEnabled();
+        ChangeHub.get().notifyTerminals();
     }
 
     static void accept(Payloads.Terminals payload) {

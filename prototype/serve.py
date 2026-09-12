@@ -72,10 +72,66 @@ class EventHub:
             return [e for e in self.events if e[0] > after]
 
 
+def sample_terminals(start):
+    """Stand-in data shaped exactly like the mod's /api/terminals, for testing the page."""
+    x, y, z = int(start['x']), int(start['y']), int(start['z'])
+    def stock(items):
+        return [{'item': i, 'name': i.split(':')[1].replace('_', ' ').title(), 'count': c} for i, c in items]
+    return [
+        {'x': x + 8, 'y': y, 'z': z + 6, 'dimension': 'minecraft:overworld',
+         'name': 'Wood Farm', 'address': 'PD-C01-B04', 'owner': 'VRLulu', 'tuned': True, 'access': 'ADMIN',
+         'settings': {'network': '11111111-1111-1111-1111-111111111111', 'role': 'PRODUCER',
+                      'interchangeStation': '', 'autoDispatch': True, 'batchSize': 4, 'maxWaitSeconds': 300,
+                      'priority': 0, 'publicAccess': 'VIEW',
+                      'players': [{'id': '', 'name': 'Friend1', 'access': 'ORDER'}],
+                      'listings': [{'item': 'minecraft:oak_log', 'price': 2, 'maxPerOrder': 128}],
+                      'supplyRules': []},
+         'stock': stock([('minecraft:oak_log', 4096), ('minecraft:oak_planks', 2048),
+                         ('minecraft:stick', 991), ('minecraft:apple', 37)])},
+        {'x': x - 14, 'y': y, 'z': z - 10, 'dimension': 'minecraft:overworld',
+         'name': 'Casings Factory', 'address': 'PD-C01-B02', 'owner': 'VRLulu', 'tuned': True, 'access': 'ORDER',
+         'settings': {'network': '22222222-2222-2222-2222-222222222222', 'role': 'CONSUMER',
+                      'interchangeStation': '', 'autoDispatch': False, 'batchSize': 1, 'maxWaitSeconds': 120,
+                      'priority': 2, 'publicAccess': 'ORDER', 'players': [],
+                      'listings': [{'item': 'minecraft:andesite', 'price': 0, 'maxPerOrder': 64}],
+                      'supplyRules': [{'item': 'minecraft:oak_log', 'keepStocked': 256,
+                                       'sourceNetwork': '11111111-1111-1111-1111-111111111111',
+                                       'sourceName': 'Wood Farm'}]},
+         'stock': stock([('minecraft:andesite', 512), ('minecraft:andesite_casing', 64)])},
+        {'x': x + 2, 'y': y, 'z': z - 30, 'dimension': 'minecraft:overworld',
+         'name': 'Post Office', 'address': 'PD-C01-B01', 'owner': 'VRLulu', 'tuned': True, 'access': 'ADMIN',
+         'settings': {'network': '33333333-3333-3333-3333-333333333333', 'role': 'POST_OFFICE',
+                      'interchangeStation': 'Woodbury Station', 'autoDispatch': True, 'batchSize': 1,
+                      'maxWaitSeconds': 60, 'priority': 5, 'publicAccess': 'VIEW', 'players': [],
+                      'listings': [], 'supplyRules': []},
+         'stock': stock([('minecraft:paper', 128)])},
+    ]
+
+
+SAMPLE_DISPATCH = {
+    'mayDispatch': True,
+    'waitingPackages': 7,
+    'readyRuns': 2,
+    'blockedRuns': 1,
+    'runs': [
+        {'train': 'Delivery Van 1', 'pickup': 'PD-C01-B04', 'drop': 'PD-C01-B02',
+         'address': 'PD-C01-B02', 'packages': 4, 'possible': True, 'problem': '',
+         'stops': ['PD-C01-B04 REV', 'PD-C01-B04', 'fetch packages PD-C01-B02',
+                   'PD-C01-B02 REV', 'PD-C01-B02', 'deliver packages']},
+        {'train': 'Delivery Van 2', 'pickup': 'PD-C01-B01', 'drop': 'PD-C01-B04',
+         'address': 'PD-C01-B04', 'packages': 2, 'possible': True, 'problem': '',
+         'stops': ['PD-C01-B01', 'fetch packages PD-C01-B04', 'PD-C01-B04', 'deliver packages']},
+        {'train': '-', 'pickup': 'PD-C01-B01', 'drop': '?', 'address': 'PD-C02-B07',
+         'packages': 1, 'possible': False, 'problem': 'no station serves PD-C02-B07', 'stops': []},
+    ],
+}
+
+
 class Handler(BaseHTTPRequestHandler):
     store: TerrainStore = None
     hub: EventHub = None
     meta: dict = {}
+    terminals: list = None        # only set by --fake-terminals
     protocol_version = 'HTTP/1.1'
 
     def log_message(self, fmt, *args):
@@ -113,6 +169,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, body, 'application/octet-stream')
         if path == '/api/events':
             return self._events()
+        if path == '/api/dispatch':
+            if self.terminals is None:
+                return self._json({'error': 'no dispatcher (the mod provides this)'}, 404)
+            return self._json({'autoDispatch': True, 'requested': False, 'status': SAMPLE_DISPATCH})
+        if path == '/api/terminals':
+            if self.terminals is None:
+                return self._json({'error': 'no terminals (the mod provides these)'}, 404)
+            return self._json({'updatedAt': int(time.time() * 1000), 'terminals': self.terminals})
         if path in ('/api/assets/textures', '/api/assets/models'):
             blob = gzip.compress(self.store.asset(path.rsplit('/', 1)[1]), compresslevel=6)
             return self._send(200, blob, 'application/octet-stream', {'Content-Encoding': 'gzip'})
@@ -135,6 +199,30 @@ class Handler(BaseHTTPRequestHandler):
             out = struct.pack('<4sII', b'VXS1', len(recs), pal_len) + b''.join(recs)
             return self._send(200, gzip.compress(out, compresslevel=1), 'application/octet-stream',
                               {'Content-Encoding': 'gzip'})
+        if self.path == '/api/dispatch' and self.terminals is not None:
+            ready = [r for r in SAMPLE_DISPATCH['runs'] if r['possible']]
+            self.hub.publish('order', {'ok': True, 'message': f'Dispatched {len(ready)} train(s)'})
+            return self._json({'autoDispatch': True, 'requested': True, 'status': SAMPLE_DISPATCH})
+        if self.path in ('/api/orders', '/api/terminals/settings') and self.terminals is not None:
+            payload = json.loads(body or '{}')
+            terminal = next((t for t in self.terminals
+                             if (t['x'], t['y'], t['z']) == (payload.get('x'), payload.get('y'), payload.get('z'))), None)
+            if terminal is None:
+                return self._json({'error': 'no such terminal'}, 404)
+            if self.path == '/api/orders':
+                self.hub.publish('order', {'ok': True,
+                                           'message': f"Ordered {payload['count']} x {payload['item']} to {payload['address']}"})
+            else:
+                for key in ('name', 'address', 'access'):
+                    if key in payload:
+                        terminal[key] = payload[key]
+                for key in ('role', 'interchangeStation', 'publicAccess', 'autoDispatch', 'batchSize',
+                            'maxWaitSeconds', 'priority', 'listings', 'supplyRules', 'players'):
+                    if key in payload:
+                        terminal['settings'][key] = payload[key]
+                self.hub.publish('order', {'ok': True, 'message': 'Saved ' + terminal['name']})
+                self.hub.publish('terminals', {})
+            return self._json({'accepted': True}, 202)
         if self.path == '/api/resync':
             stats = self.store.open()
             self.hub.publish('resync', {'v': self.store.version})
@@ -183,6 +271,8 @@ def main():
     ap.add_argument('--version-jar', default=VERSION_JAR, help='vanilla client jar (textures/biomes)')
     ap.add_argument('--port', type=int, default=8765)
     ap.add_argument('--poll', type=float, default=1.0, help='seconds between live WAL polls (0 = off)')
+    ap.add_argument('--fake-terminals', action='store_true',
+                    help='serve stand-in logistics terminals, to develop the page without the game')
     args = ap.parse_args()
 
     world_dir = args.world or (None if args.storage else DEFAULT_WORLD)
@@ -201,6 +291,9 @@ def main():
     Handler.store, Handler.hub = store, EventHub()
     Handler.meta = {'name': name, 'live': args.poll > 0,
                     'start': start_position(world_dir) if world_dir else {'x': 0, 'y': 64, 'z': 0}}
+    if args.fake_terminals:
+        Handler.terminals = sample_terminals(Handler.meta['start'])
+        print(f'serving {len(Handler.terminals)} stand-in terminals', flush=True)
     if args.poll > 0:
         threading.Thread(target=live_loop, args=(store, Handler.hub, args.poll), daemon=True).start()
     server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)

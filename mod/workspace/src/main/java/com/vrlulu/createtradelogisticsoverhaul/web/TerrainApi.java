@@ -189,6 +189,8 @@ public class TerrainApi {
                     .append(",\"address\":\"").append(esc(t.address())).append('"')
                     .append(",\"owner\":\"").append(esc(t.owner())).append('"')
                     .append(",\"tuned\":").append(t.tuned())
+                    .append(",\"access\":\"").append(esc(t.access())).append('"')
+                    .append(",\"settings\":").append(t.settingsJson().isBlank() ? "{}" : t.settingsJson())
                     .append(",\"stock\":[");
             List<Payloads.StockLine> stock = t.stock();
             for (int j = 0; j < stock.size(); j++) {
@@ -202,6 +204,34 @@ public class TerrainApi {
         }
         out.append("]}");
         Http.json(ex, 200, out.toString());
+    }
+
+    /** Saves terminal settings: {"x":..,"y":..,"z":.., ...fields to change... } */
+    public void terminalSettings(HttpExchange ex) throws IOException {
+        String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+        try {
+            int x = (int) jsonNumber(body, "x"), y = (int) jsonNumber(body, "y"), z = (int) jsonNumber(body, "z");
+            ClientTerminals.updateSettings(new net.minecraft.core.BlockPos(x, y, z), body);
+            Http.json(ex, 202, "{\"accepted\":true}");
+        } catch (RuntimeException e) {
+            Http.json(ex, 400, "{\"error\":\"bad request\"}");
+        }
+    }
+
+    /**
+     * What the dispatcher sees. GET only looks; POST with {"run":true} actually sends the trains,
+     * so a page load never touches a live railway.
+     */
+    public void dispatch(HttpExchange ex) throws IOException {
+        boolean run = false;
+        if ("POST".equals(ex.getRequestMethod())) {
+            String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+            run = body.contains("\"run\"") && body.contains("true");
+        }
+        ClientTerminals.requestDispatch(run);
+        // The reply lands asynchronously; hand back what we have and let the event stream nudge us.
+        Http.json(ex, 200, "{\"autoDispatch\":" + ClientTerminals.autoDispatch()
+                + ",\"requested\":" + run + ",\"status\":" + ClientTerminals.dispatchJson() + "}");
     }
 
     /** Places an order: {"x":..,"y":..,"z":..,"item":"minecraft:iron_ingot","count":64,"address":"PD-C01-B02"} */

@@ -29,8 +29,10 @@ public final class Payloads {
     }
 
     /** A terminal as the map sees it. */
+    /** settingsJson carries role, permissions, dispatch triggers, listings and supply rules. */
     public record TerminalInfo(BlockPos pos, String dimension, String name, String address, String owner,
-                               boolean tuned, boolean networkLoaded, List<StockLine> stock) {
+                               boolean tuned, boolean networkLoaded, List<StockLine> stock,
+                               String settingsJson, String access) {
         // Written by hand: the composite builder tops out at six fields.
         public static final StreamCodec<RegistryFriendlyByteBuf, TerminalInfo> CODEC = StreamCodec.of(
                 (buf, info) -> {
@@ -41,6 +43,8 @@ public final class Payloads {
                     buf.writeUtf(info.owner());
                     buf.writeBoolean(info.tuned());
                     buf.writeBoolean(info.networkLoaded());
+                    buf.writeUtf(info.settingsJson(), 32767);
+                    buf.writeUtf(info.access());
                     buf.writeVarInt(info.stock().size());
                     for (StockLine line : info.stock()) {
                         StockLine.CODEC.encode(buf, line);
@@ -54,12 +58,15 @@ public final class Payloads {
                     String owner = buf.readUtf();
                     boolean tuned = buf.readBoolean();
                     boolean loaded = buf.readBoolean();
+                    String settingsJson = buf.readUtf(32767);
+                    String access = buf.readUtf();
                     int count = buf.readVarInt();
                     List<StockLine> stock = new java.util.ArrayList<>(Math.min(count, 512));
                     for (int i = 0; i < count; i++) {
                         stock.add(StockLine.CODEC.decode(buf));
                     }
-                    return new TerminalInfo(pos, dimension, name, address, owner, tuned, loaded, stock);
+                    return new TerminalInfo(pos, dimension, name, address, owner, tuned, loaded, stock,
+                            settingsJson, access);
                 });
     }
 
@@ -87,6 +94,20 @@ public final class Payloads {
         }
     }
 
+    /** Editing a terminal from the map: a flat bag of fields, only the present ones are applied. */
+    public record UpdateTerminal(BlockPos terminal, String json) implements CustomPacketPayload {
+        public static final Type<UpdateTerminal> TYPE = new Type<>(id("update_terminal"));
+        public static final StreamCodec<RegistryFriendlyByteBuf, UpdateTerminal> CODEC = StreamCodec.composite(
+                BlockPos.STREAM_CODEC, UpdateTerminal::terminal,
+                ByteBufCodecs.STRING_UTF8, UpdateTerminal::json,
+                UpdateTerminal::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
     /** "Send me these items from that terminal's network, to this address." */
     public record PlaceOrder(BlockPos terminal, String item, int count, String address)
             implements CustomPacketPayload {
@@ -97,6 +118,32 @@ public final class Payloads {
                 ByteBufCodecs.VAR_INT, PlaceOrder::count,
                 ByteBufCodecs.STRING_UTF8, PlaceOrder::address,
                 PlaceOrder::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    /** The map asking what the dispatcher sees. run=true also sends the trains. */
+    public record RequestDispatch(boolean run) implements CustomPacketPayload {
+        public static final Type<RequestDispatch> TYPE = new Type<>(id("request_dispatch"));
+        public static final StreamCodec<RegistryFriendlyByteBuf, RequestDispatch> CODEC = StreamCodec.composite(
+                ByteBufCodecs.BOOL, RequestDispatch::run, RequestDispatch::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    /** What is waiting and what the dispatcher would do about it, as JSON for the page. */
+    public record DispatchStatus(boolean autoEnabled, String json) implements CustomPacketPayload {
+        public static final Type<DispatchStatus> TYPE = new Type<>(id("dispatch_status"));
+        public static final StreamCodec<RegistryFriendlyByteBuf, DispatchStatus> CODEC = StreamCodec.composite(
+                ByteBufCodecs.BOOL, DispatchStatus::autoEnabled,
+                ByteBufCodecs.STRING_UTF8, DispatchStatus::json,
+                DispatchStatus::new);
 
         @Override
         public Type<? extends CustomPacketPayload> type() {

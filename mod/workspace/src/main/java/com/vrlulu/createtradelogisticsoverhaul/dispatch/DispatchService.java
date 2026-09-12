@@ -1,0 +1,166 @@
+package com.vrlulu.createtradelogisticsoverhaul.dispatch;
+
+import com.simibubi.create.content.logistics.BigItemStack;
+import com.simibubi.create.content.logistics.packager.InventorySummary;
+import com.simibubi.create.content.logistics.packagerLink.LogisticallyLinkedBehaviour;
+import com.simibubi.create.content.logistics.packagerLink.LogisticsManager;
+import com.simibubi.create.content.logistics.stockTicker.PackageOrder;
+import com.simibubi.create.content.logistics.stockTicker.PackageOrderWithCrafts;
+import com.vrlulu.createtradelogisticsoverhaul.CreateTradeLogisticsOverhaul;
+import com.vrlulu.createtradelogisticsoverhaul.logistics.LogisticsTerminalBlockEntity;
+import com.vrlulu.createtradelogisticsoverhaul.logistics.TerminalRegistry;
+import com.vrlulu.createtradelogisticsoverhaul.logistics.TerminalSettings;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Runs the dispatcher by itself: watches what is waiting, waits for a terminal's batch or deadline,
+ * then sends a train. Also keeps supply rules topped up.
+ *
+ * <p>Off by default, twice over: a global switch (/ctlo auto on) and a per-terminal "auto dispatch"
+ * setting. Nothing touches a railway until both are on.
+ */
+@EventBusSubscriber(modid = CreateTradeLogisticsOverhaul.ID)
+public final class DispatchService {
+    private static final int DISPATCH_INTERVAL_TICKS = 100;      // 5s
+    private static final int SUPPLY_INTERVAL_TICKS = 600;        // 30s
+
+    private static boolean enabled = false;
+    private static int ticks;
+    /** When each (station -> address) group was first seen waiting, for the deadline trigger. */
+    private static final Map<String, Long> waitingSince = new HashMap<>();
+
+    private DispatchService() {
+    }
+
+    public static boolean enabled() {
+        return enabled;
+    }
+
+    public static void setEnabled(boolean value) {
+        enabled = value;
+        waitingSince.clear();
+    }
+
+    @SubscribeEvent
+    public static void onServerTick(ServerTickEvent.Post event) {
+        if (!enabled) {
+            return;
+        }
+        ticks++;
+        MinecraftServer server = event.getServer();
+        if (ticks % DISPATCH_INTERVAL_TICKS == 0) {
+            try {
+                dispatchReady(server);
+            } catch (Throwable t) {
+                CreateTradeLogisticsOverhaul.LOG.error("Auto dispatch failed", t);
+            }
+        }
+        if (ticks % SUPPLY_INTERVAL_TICKS == 0) {
+            try {
+                runSupplyRules(server);
+            } catch (Throwable t) {
+                CreateTradeLogisticsOverhaul.LOG.error("Supply rules failed", t);
+            }
+        }
+    }
+
+    /** Sends trains for any waiting group whose origin terminal says it's time. */
+    private static void dispatchReady(MinecraftServer server) {
+        List<Dispatcher.Waiting> waiting = Dispatcher.waitingPackages();
+        long now = System.currentTimeMillis();
+        Map<String, Dispatcher.Waiting> current = new HashMap<>();
+        for (Dispatcher.Waiting w : waiting) {
+            current.put(w.atStation() + "->" + w.toAddress(), w);
+        }
+        waitingSince.keySet().removeIf(key -> !current.containsKey(key));
+
+        for (Map.Entry<String, Dispatcher.Waiting> entry : current.entrySet()) {
+            Dispatcher.Waiting w = entry.getValue();
+            waitingSince.putIfAbsent(entry.getKey(), now);
+            LogisticsTerminalBlockEntity origin = terminalForAddress(server, w.atStation());
+            if (origin == null || !origin.settings().autoDispatch) {
+                continue;               // this building hasn't opted in
+            }
+            TerminalSettings settings = origin.settings();
+            long waitedSeconds = (now - waitingSince.get(entry.getKey())) / 1000;
+            boolean batchReady = w.count() >= settings.batchSize;
+            boolean deadlineHit = settings.maxWaitSeconds > 0 && waitedSeconds >= settings.maxWaitSeconds;
+            if (!batchReady && !deadlineHit) {
+                continue;
+            }
+            for (Dispatcher.Plan plan : Dispatcher.plan()) {
+                if (!plan.isPossible() || !plan.pickupStation().equals(w.atStation())
+                        || !plan.address().equals(w.toAddress())) {
+                    continue;
+                }
+                if (Dispatcher.assign(plan, server.registryAccess())) {
+                    waitingSince.remove(entry.getKey());
+                }
+                break;
+            }
+        }
+    }
+
+    /** "Keep N of X here": orders the shortfall from the source network. */
+    private static void runSupplyRules(MinecraftServer server) {
+        for (ServerLevel level : server.getAllLevels()) {
+            for (LogisticsTerminalBlockEntity terminal : TerminalRegistry.forLevel(level).loaded(level)) {
+                TerminalSettings settings = terminal.settings();
+                if (settings.supplyRules.isEmpty() || settings.address.isBlank()) {
+                    continue;
+                }
+                for (TerminalSettings.SupplyRule rule : settings.supplyRules) {
+                    Item item = BuiltInRegistries.ITEM.get(ResourceLocation.parse(rule.item()));
+                    if (item == null || rule.sourceNetwork() == null || rule.keepStocked() <= 0) {
+                        continue;
+                    }
+                    ItemStack stack = new ItemStack(item);
+                    int have = terminal.countOf(stack);
+                    int missing = rule.keepStocked() - have;
+                    if (missing <= 0) {
+                        continue;
+                    }
+                    InventorySummary source = LogisticsManager.getSummaryOfNetwork(rule.sourceNetwork(), false);
+                    int available = source == null ? 0 : source.getCountOf(stack);
+                    int amount = Math.min(missing, available);
+                    if (amount <= 0) {
+                        continue;
+                    }
+                    BigItemStack big = LogisticsTerminalBlockEntity.bigStack(stack, amount);
+                    PackageOrderWithCrafts order =
+                            new PackageOrderWithCrafts(new PackageOrder(List.of(big)), List.of());
+                    boolean sent = LogisticsManager.broadcastPackageRequest(rule.sourceNetwork(),
+                            LogisticallyLinkedBehaviour.RequestType.RESTOCK, order, null, settings.address);
+                    if (sent) {
+                        CreateTradeLogisticsOverhaul.LOG.info("Supply rule: {} x {} -> {} (had {} of {})",
+                                amount, rule.item(), settings.address, have, rule.keepStocked());
+                    }
+                }
+            }
+        }
+    }
+
+    /** The terminal whose address matches a station name (the user names stations after addresses). */
+    private static LogisticsTerminalBlockEntity terminalForAddress(MinecraftServer server, String address) {
+        for (ServerLevel level : server.getAllLevels()) {
+            for (LogisticsTerminalBlockEntity terminal : TerminalRegistry.forLevel(level).loaded(level)) {
+                if (address.equals(terminal.address())) {
+                    return terminal;
+                }
+            }
+        }
+        return null;
+    }
+}

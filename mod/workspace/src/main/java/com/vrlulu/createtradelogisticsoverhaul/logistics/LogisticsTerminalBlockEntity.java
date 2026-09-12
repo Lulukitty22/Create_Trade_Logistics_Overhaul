@@ -22,18 +22,21 @@ import java.util.UUID;
  * A Logistics Terminal: one building's window onto the logistics map.
  *
  * <p>Tuned to a Create logistics network with a stock link, exactly like a Stock Ticker. It holds
- * the place's name and package address, and it is the only way the map can see or order anything
- * (see DESIGN.md, "Not omnipotent").
+ * the place's name, package address and settings, and it is the only way the map can see or order
+ * anything (see DESIGN.md, "Not omnipotent").
  */
 public class LogisticsTerminalBlockEntity extends BlockEntity {
+    private final TerminalSettings settings = new TerminalSettings();
     private UUID network;
     private UUID ownerId;
     private String ownerName = "";
-    private String terminalName = "";
-    private String address = "";
 
     public LogisticsTerminalBlockEntity(BlockPos pos, BlockState state) {
         super(ModContent.TERMINAL_BE.get(), pos, state);
+    }
+
+    public TerminalSettings settings() {
+        return settings;
     }
 
     public UUID network() {
@@ -45,11 +48,11 @@ public class LogisticsTerminalBlockEntity extends BlockEntity {
     }
 
     public String terminalName() {
-        return terminalName.isBlank() ? "Unnamed terminal" : terminalName;
+        return settings.name.isBlank() ? "Unnamed terminal" : settings.name;
     }
 
     public String address() {
-        return address;
+        return settings.address;
     }
 
     public String ownerName() {
@@ -58,6 +61,10 @@ public class LogisticsTerminalBlockEntity extends BlockEntity {
 
     public UUID ownerId() {
         return ownerId;
+    }
+
+    public TerminalSettings.Access accessFor(Player player) {
+        return settings.accessFor(player == null ? null : player.getUUID(), ownerId);
     }
 
     public void setOwner(Player player) {
@@ -71,16 +78,6 @@ public class LogisticsTerminalBlockEntity extends BlockEntity {
         setChanged();
     }
 
-    public void setTerminalName(String name) {
-        this.terminalName = name == null ? "" : name;
-        setChanged();
-    }
-
-    public void setAddress(String address) {
-        this.address = address == null ? "" : address;
-        setChanged();
-    }
-
     /** Everything the network can currently see. Only loaded stock links contribute (Create's rule). */
     public List<BigItemStack> stock() {
         if (network == null) {
@@ -88,6 +85,14 @@ public class LogisticsTerminalBlockEntity extends BlockEntity {
         }
         InventorySummary summary = LogisticsManager.getSummaryOfNetwork(network, false);
         return summary == null ? List.of() : summary.getStacksByCount();
+    }
+
+    public int countOf(ItemStack item) {
+        if (network == null) {
+            return 0;
+        }
+        InventorySummary summary = LogisticsManager.getSummaryOfNetwork(network, false);
+        return summary == null ? 0 : summary.getCountOf(item);
     }
 
     /**
@@ -116,8 +121,7 @@ public class LogisticsTerminalBlockEntity extends BlockEntity {
             tag.putUUID("Owner", ownerId);
         }
         tag.putString("OwnerName", ownerName);
-        tag.putString("Name", terminalName);
-        tag.putString("Address", address);
+        tag.put("Settings", settings.save());
     }
 
     @Override
@@ -126,8 +130,11 @@ public class LogisticsTerminalBlockEntity extends BlockEntity {
         network = tag.hasUUID("Network") ? tag.getUUID("Network") : null;
         ownerId = tag.hasUUID("Owner") ? tag.getUUID("Owner") : null;
         ownerName = tag.getString("OwnerName");
-        terminalName = tag.getString("Name");
-        address = tag.getString("Address");
+        settings.load(tag.getCompound("Settings"));
+        if (tag.contains("Name")) {            // terminals saved before settings moved into their own tag
+            settings.name = tag.getString("Name");
+            settings.address = tag.getString("Address");
+        }
     }
 
     @Override
@@ -146,7 +153,7 @@ public class LogisticsTerminalBlockEntity extends BlockEntity {
         }
     }
 
-    /** Convenience for the "order everything of this item" case. */
+    /** Convenience for the "order this much of this item" case. */
     public static BigItemStack bigStack(ItemStack stack, int count) {
         BigItemStack big = new BigItemStack(stack);
         big.count = count;

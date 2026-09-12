@@ -201,7 +201,14 @@ The client mod and the Python stand-in both implement this. It'll be refined dur
 | POST | `/api/terrain/sections` | Body: list of `(lod, x, y, z)`. Returns those sections, with missing ones marked (binary, gzip) |
 | GET | `/api/events` | Server-Sent Events: `changed` (section keys, palette growth) and `resync` |
 | POST | `/api/resync` | Take a fresh full snapshot |
-| POST | `/api/actions` | Player actions such as orders, forwarded to the server (later) |
+| GET | `/api/terminals` | Every Logistics Terminal the player may see: position, name, address, owner, access, settings, stock |
+| POST | `/api/terminals/settings` | Body: terminal position plus the fields to change. Applied if the player is ADMIN there |
+| POST | `/api/orders` | Body: terminal position, item, count, address. Places a Create package order |
+| GET | `/api/dispatch` | What is waiting and the runs the dispatcher would set up. Looks only |
+| POST | `/api/dispatch` | Body `{"run":true}`. Actually hands the schedules to trains (operators only) |
+
+Terminal calls are asynchronous: the page's request goes to the server as a packet and the answer
+arrives on `/api/events` (`terminals`, `order`), so the browser never waits on a game tick.
 
 ## Terrain pipeline
 
@@ -351,6 +358,51 @@ mod/
 - The browser never unloads sections. Long flights over the big world will grow memory, so it needs eviction.
 - The hidden Browser pane pauses animation frames. `?timer` drives the loop with timers for testing.
 
+## Terminal features (implemented 2026-09-11)
+
+Everything below exists in code and compiles; only the terrain half has been seen running in game.
+
+**The block.** `Logistics Terminal` (`logistics_terminal`), tuned by right-clicking it with a tuned
+Stock Link exactly like Create's own blocks. It keeps a `TerminalSettings` in its block entity and
+registers itself in a per-level `TerminalRegistry` (a `SavedData`), so the map can list terminals
+whose chunks are loaded without scanning the world.
+
+**Settings**, all editable from the map by whoever has ADMIN on that terminal:
+
+| Setting | Meaning |
+|---|---|
+| Name, Address | What the map shows; the address ties the terminal to its station |
+| Role | `PRODUCER` / `CONSUMER` / `WAREHOUSE` / `POST_OFFICE` |
+| Other side | For a post office: the station on the far railway, making it an interchange |
+| Public access | `NONE` / `VIEW` / `ORDER` / `ADMIN` for everyone not named |
+| People | Per-player access, resolved from player names through the server's profile cache |
+| Auto dispatch, Batch size, Max wait, Priority | Dispatch triggers for this terminal |
+| Trade listings | Item, price each, max per order. Non-owners may only order what is listed |
+| Supply rules | Keep N of an item stocked, pulling from a named source terminal's network |
+
+**Permissions** are checked server-side on every action, never in the page: `accessFor(player)`
+returns the player's entry, else the public access, and the owner always has ADMIN.
+
+**Payments** go through Numismatics by reflection (`Payments.java`), so the mod still loads without
+it — a priced listing simply refuses the order and says why. Funds currently transfer at order time;
+holding them in escrow until delivery is still to do.
+
+**Dispatching.** `Dispatcher.plan()` reads every station postbox, groups the packages by address,
+finds the station serving that address (exact match, then wildcards like `PD-C01-B*`), picks an idle
+train on the same track graph, and builds the stop list — inserting the `<address> REV` reverse point
+where one exists. `assign()` turns a plan into a Create `Schedule` (destination / fetch packages /
+deliver packages) and hands it to the train. Planning never touches a live railway; only `assign`
+does. Packages bound for another railway are routed one leg at a time to that railway's interchange.
+
+`DispatchService` runs the same thing on a tick loop for terminals with auto dispatch on, gated by a
+global switch (`/ctlo auto on|off`, default off). `/ctlo packages` and `/ctlo dispatch [run]` give the
+same view in chat.
+
+**On the map**, the terminals panel lists the runs with their stops and, for blocked ones, the reason
+(`no idle train on that track network`, `no station serves PD-C02-B07`). Terminals something is
+waiting for get a highlighted label. "Send all ready" needs operator rights and is the only control
+that moves a train.
+
 ## Mod skeleton (started 2026-09-11)
 
 - **Identity:** mod id `createtradelogisticsoverhaul`, package `com.vrlulu.createtradelogisticsoverhaul`, version 0.1.0.
@@ -441,11 +493,16 @@ Measured with `model_survey.py` against every block state Voxy has seen:
 
 1. **Prototype renderer (done):** Python stand-in plus web page, with streaming 3D terrain, live updates, real textures and block models.
 2. **Client mod:** local web server and Voxy file reading in Java, replacing the stand-in. Uses the game's own models and textures. **← next**
-3. **Registry (read-only):** the Logistics Panel block, permissions, and stock, addresses, stations and track graphs on the map.
-4. **Dispatcher v1:** express tasking for one city's van, including reverse points, replacing the round-robin loop.
-5. **Routing across graphs:** interchanges and long-haul legs; orders placed from the map.
-6. **Supply rules and trade:** cross-network standing orders, prices, Numismatics payments.
-7. **Later:** airship (Sable/Aeronautics) docking as an interchange; tracks and trains drawn on the map.
+2b. **Client mod (done):** local web server, Voxy read in-process, live updates through a mixin on
+   Voxy's `markDirty`, the game's own textures and baked models.
+3. **Registry (written, untested in game):** the Logistics Terminal block, permissions, stock and
+   addresses on the map.
+4. **Dispatcher v1 (written, untested in game):** express tasking including reverse points.
+5. **Routing across graphs (written, untested in game):** interchange legs; orders placed from the map.
+6. **Supply rules and trade (written, untested in game):** standing orders, prices, Numismatics
+   payments. Escrow until delivery still to do.
+7. **Next:** verify all of the above in game, then draw tracks and trains on the map.
+8. **Later:** airship (Sable/Aeronautics) docking as an interchange.
 
 ## Decisions log
 
@@ -464,6 +521,12 @@ Measured with `model_survey.py` against every block state Voxy has seen:
 - **2026-09-10:** Meshing happens in the browser (Web Workers), not the server. That keeps toggles like caves cheap, and the client mod only has to serve voxel data.
 - **2026-09-10:** Terrain streams on demand through the octree, so worlds of any size work. Live updates come from tailing Voxy's write-ahead log, not from repeated snapshots.
 - **2026-09-10:** Real textures are chosen over lighting effects. Block models are feasible at LOD 0 only; coarser levels stay textured cubes.
+- **2026-09-11:** The block is called **Logistics Terminal**, not a panel.
+- **2026-09-11:** Terminal settings travel as JSON in one packet rather than a packet per field. The
+  page needs no schema, and unknown fields are ignored, so old clients stay compatible.
+- **2026-09-11:** Dispatching from the map requires operator rights, and a page load never dispatches
+  — `GET /api/dispatch` plans, `POST` runs.
+- **2026-09-11:** Numismatics is optional and reached by reflection, so the mod loads without it.
 - **2026-09-10:** Textures and JSON block models are implemented. Blocks drawn by code in the game (chests, Create kinetic parts, …) aren't worth replicating; they get simple stand-ins or are skipped.
 
 ## Open questions

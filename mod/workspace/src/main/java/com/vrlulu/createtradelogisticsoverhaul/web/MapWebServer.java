@@ -89,6 +89,8 @@ public class MapWebServer {
         server.createContext("/api/resync", wrap(terrain::resync));
         server.createContext("/api/terminals", wrap(terrain::terminals));
         server.createContext("/api/orders", wrap(terrain::order));
+        server.createContext("/api/terminals/settings", wrap(terrain::terminalSettings));
+        server.createContext("/api/dispatch", wrap(terrain::dispatch));
         server.createContext("/api/assets/textures", wrap(terrain::textures));
         server.createContext("/api/assets/models", wrap(terrain::models));
         server.setExecutor(pool);
