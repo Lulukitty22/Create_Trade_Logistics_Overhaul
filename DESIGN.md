@@ -186,6 +186,43 @@ This was read with `javap` from `create-1.21.1-6.0.10.jar`. These are internal c
   - **Conclusion:** Create already handles demand and packaging across networks. What's missing is *transport tasking*, which is what this mod adds.
 - **Numismatics** (for a later trade layer) has `BankAccount`, `GlobalBankManager` and `BankSavedData`, so payments between accounts can be made in code.
 
+## Create internals the dispatcher depends on (learned the hard way)
+
+Each of these cost a failed in-game test. Upstream source is worth cloning (`reference/`, gitignored)
+rather than guessing from decompiled signatures.
+
+**A schedule entry with no wait conditions never advances.** `ScheduleRuntime.tickConditions`
+increments `currentEntry` from *inside* its loop over the entry's conditions, so an empty list means
+the train reaches that stop and stays there for good. `DestinationInstruction`,
+`FetchPackagesInstruction` and `DeliverPackagesInstruction` all report `supportsConditions() == true`,
+so every entry needs one. Station stops use `IdleCargoCondition` (3s), reverse points `ScheduledDelay`
+(1s) - the same conditions a player picks in the schedule screen.
+
+**Fetch and deliver route themselves.** Both scan every station on the graph for one holding a
+matching package and call `train.navigation.findPathTo(...)`. A schedule of just those two therefore
+sends the train wherever Create fancies, which is the opposite of dispatching. Both stations are
+named explicitly so the schedule matches the plan the map showed.
+
+**Deliver fails silently with an empty train.** If the train carries no packages,
+`DeliverPackagesInstruction.start` sets `PRE_TRANSIT` and advances past itself rather than reporting
+anything - so a fetch that loaded nothing ends the run with no error at all.
+
+**Both package instructions need a conductor**, or they call `missingConductor()` and cool down
+forever. The plan reports this rather than dispatching a train that cannot work.
+
+**A linked block must implement `IBE`.** `LogisticallyLinkedBlockItem.assignFrequency` casts the
+item's block to it, so a block that doesn't implement it can never be tuned - the item just places
+instead, with no error.
+
+**Every linked block starts on its own network.** `LogisticallyLinkedBehaviour`'s constructor does
+`freqId = UUID.randomUUID()`, so "has a network id" means nothing and there is no untuned state.
+Linked means *something else is on the same network*. Any migration that tests for a null frequency
+is dead code.
+
+**Create's API leaks its bundled libraries' types** - `SmartBlockEntity` implements Ponder's
+`VirtualBlockEntity` - so Create's jar-in-jar libraries have to be unpacked onto the compile
+classpath. `build.gradle` does this automatically.
+
 ## Local HTTP API (draft)
 
 The client mod and the Python stand-in both implement this. It'll be refined during the renderer experiments.
@@ -508,10 +545,13 @@ Measured with `model_survey.py` against every block state Voxy has seen:
 2. **Client mod:** local web server and Voxy file reading in Java, replacing the stand-in. Uses the game's own models and textures. **← next**
 2b. **Client mod (done):** local web server, Voxy read in-process, live updates through a mixin on
    Voxy's `markDirty`, the game's own textures and baked models.
-3. **Registry (written, untested in game):** the Logistics Terminal block, permissions, stock and
-   addresses on the map.
-4. **Dispatcher v1 (written, untested in game):** express tasking including reverse points.
-5. **Routing across graphs (written, untested in game):** interchange legs; orders placed from the map.
+3. **Registry (working in game):** the Logistics Terminal block, permissions, stock and addresses on
+   the map. Binding, the network glow and tooltips come from Create's own linked-block machinery.
+4. **Dispatcher v1 (working in game):** verified end to end on 2026-09-11 - ordered 4 Honeyed Apple
+   from Oranges to Apples, the package queued at the postbox, the map planned the run, the train was
+   dispatched, and the goods arrived in Apples' network. Reverse points are inserted where they
+   exist; this test layout has none.
+5. **Routing across graphs (written, untested in game):** interchange legs.
 6. **Supply rules and trade (written, untested in game):** standing orders, prices, Numismatics
    payments. Escrow until delivery still to do.
 7. **Next:** verify all of the above in game, then draw tracks and trains on the map.
