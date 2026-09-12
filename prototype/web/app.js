@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import { Terminals } from './terminals.js';
 import { Rails } from './rails.js';
+import { StationGraph } from './stationgraph.js';
 
 const P = 34;                        // padded section size for the mesher
 const KIND_SOLID = 1, KIND_WATER = 2;
@@ -117,6 +118,12 @@ async function loadAssets() {
 
 const terminals = new Terminals(scene, camera, renderer);
 const rails = new Rails(scene, camera);
+const stationGraph = new StationGraph();
+rails.onData = (r) => stationGraph.update(r);
+$('graphtoggle')?.addEventListener('change', (e) => {
+  stationGraph.setOpen(e.target.checked);
+  if (e.target.checked) { rails.unsupported = false; rails.refresh(); }
+});
 ui.rails?.addEventListener('change', () => {
   rails.setVisible(ui.rails.checked);
   if (ui.rails.checked) rails.refresh();

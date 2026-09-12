@@ -127,6 +127,28 @@ SAMPLE_DISPATCH = {
 }
 
 
+def sample_rails(start):
+    """A stand-in railway shaped like a pair of sidings, for developing the map without the game."""
+    x, y, z = int(start['x']), int(start['y']), int(start['z'])
+    def line(ax, az, bx, bz):
+        return [x + ax, y, z + az, x + bx, y, z + bz]
+    return {
+        'tracks': [line(-30, 0, 30, 0), line(-30, 0, -34, -12), line(30, 0, 34, 12)],
+        'stations': [
+            {'name': 'Oranges', 'graph': '8877d732', 'x': x - 34, 'y': y, 'z': z - 12, 'addresses': ['Oranges']},
+            {'name': 'Oranges REV', 'graph': '8877d732', 'x': x - 30, 'y': y, 'z': z, 'addresses': []},
+            {'name': 'Apples', 'graph': '8877d732', 'x': x + 34, 'y': y, 'z': z + 12, 'addresses': ['Apples']},
+            {'name': 'Apples REV', 'graph': '8877d732', 'x': x + 30, 'y': y, 'z': z, 'addresses': []},
+        ],
+        'links': [
+            {'from': 'Oranges', 'to': 'Oranges REV'},
+            {'from': 'Oranges REV', 'to': 'Apples REV'},
+            {'from': 'Apples REV', 'to': 'Apples'},
+        ],
+        'trains': [{'name': 'Delivery Van 1', 'x': x, 'y': y + 1, 'z': z, 'busy': False, 'cars': 2}],
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     store: TerrainStore = None
     hub: EventHub = None
@@ -169,6 +191,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, body, 'application/octet-stream')
         if path == '/api/events':
             return self._events()
+        if path == '/api/rails':
+            if self.terminals is None:
+                return self._json({'error': 'no railway (the mod provides this)'}, 404)
+            return self._json(sample_rails(self.meta['start']))
         if path == '/api/dispatch':
             if self.terminals is None:
                 return self._json({'error': 'no dispatcher (the mod provides this)'}, 404)

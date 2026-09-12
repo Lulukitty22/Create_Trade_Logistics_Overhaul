@@ -78,6 +78,12 @@
   .map-label:hover { border-color: var(--accent); }
   .map-label.station { color: #9ec9f0; border-color: rgba(111,168,220,0.4); pointer-events: none; }
   .map-label.train { color: #b6f0c6; border-color: rgba(76,209,122,0.4); pointer-events: none; font-size: 10px; }
+  #stationgraph { left: 50%; transform: translateX(-50%); bottom: 12px; max-width: min(70vw, 900px);
+    max-height: 46vh; padding: 10px 12px; display: flex; flex-direction: column; }
+  #stationgraph[hidden] { display: none; }
+  .sghead { display: flex; justify-content: space-between; align-items: center; font-weight: 600; margin-bottom: 4px; }
+  .sgnote { color: var(--muted); font-size: 11px; margin-bottom: 8px; }
+  .sgscroll { overflow: auto; }
   #tip .name { font-weight: 600; }
   #tip .ns { color: var(--muted); font-weight: 400; }
   #tip .meta { color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -94,12 +100,19 @@
   <div class="row"><label for="lodtint">Colour by LOD level</label><input id="lodtint" type="checkbox"></div>
   <div class="row"><label for="flash">Highlight live updates</label><input id="flash" type="checkbox" checked></div>
   <div class="row"><label for="rails">Show railway</label><input id="rails" type="checkbox" checked></div>
+  <div class="row"><label for="graphtoggle">Station connections</label><input id="graphtoggle" type="checkbox"></div>
   <button id="refresh">Full re-sync from game</button>
   <div class="stats" id="stats"></div>
 </div>
 <div id="help" class="panel"><kbd>Left drag</kbd> pan · <kbd>Right drag</kbd> rotate · <kbd>Wheel</kbd> zoom · <kbd>WASD</kbd> move · <kbd>Q</kbd>/<kbd>E</kbd> down/up</div>
 <div id="tip" class="panel"></div>
 <div id="map-labels"></div>
+<div id="stationgraph" class="panel" hidden>
+  <div class="sghead">Station connections <button id="stationgraph-close" class="mini">close</button></div>
+  <div class="sgnote">A line means a train can run between the two without stopping anywhere else.
+    Blue is a reverse point; a dot marks a station with no postbox.</div>
+  <div class="sgscroll"><svg id="stationgraph-svg" xmlns="http://www.w3.org/2000/svg"></svg></div>
+</div>
 <div id="terminals" class="panel" hidden>
   <h2>Logistics terminals</h2>
   <div id="terminal-list"></div>

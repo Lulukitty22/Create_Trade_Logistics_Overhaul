@@ -22,6 +22,7 @@ export class Rails {
     scene.add(this.group);
     this.trackSignature = '';
     this.stations = [];
+    this.links = [];
     this.trains = [];
     this.visible = true;
     this.tmp = new THREE.Vector3();
@@ -41,7 +42,9 @@ export class Rails {
       const data = await res.json();
       this.drawTracks(data.tracks || []);
       this.stations = data.stations || [];
+      this.links = data.links || [];
       this.drawTrains(data.trains || []);
+      this.onData?.(this);
     } catch {
       this.unsupported = true;      // nothing serving a railway; stop asking
     }
