@@ -34,6 +34,20 @@ public final class ChangeHub {
         return !subscriptions.isEmpty();
     }
 
+    /** Terminal list changed: the page should re-read /api/terminals. */
+    public void notifyTerminals() {
+        for (Subscription sub : subscriptions) {
+            sub.markTerminals();
+        }
+    }
+
+    /** The result of an order the page placed. */
+    public void notifyOrderResult(boolean ok, String message) {
+        for (Subscription sub : subscriptions) {
+            sub.pushOrderResult(ok, message);
+        }
+    }
+
     /** Tells every open page to reload from scratch (after a re-sync). */
     public void requestResync() {
         for (Subscription sub : subscriptions) {
@@ -55,6 +69,33 @@ public final class ChangeHub {
         private final LongOpenHashSet pending = new LongOpenHashSet();
         private boolean overflowed;
         private boolean resync;
+        private boolean terminalsChanged;
+        private final java.util.List<String> orderResults = new java.util.ArrayList<>();
+
+        private synchronized void markTerminals() {
+            terminalsChanged = true;
+            notifyAll();
+        }
+
+        private synchronized void pushOrderResult(boolean ok, String message) {
+            orderResults.add((ok ? "ok|" : "fail|") + message);
+            notifyAll();
+        }
+
+        public synchronized boolean takeTerminalsChanged() {
+            boolean was = terminalsChanged;
+            terminalsChanged = false;
+            return was;
+        }
+
+        public synchronized java.util.List<String> takeOrderResults() {
+            if (orderResults.isEmpty()) {
+                return java.util.List.of();
+            }
+            java.util.List<String> copy = java.util.List.copyOf(orderResults);
+            orderResults.clear();
+            return copy;
+        }
 
         private synchronized void markResync() {
             resync = true;
@@ -79,7 +120,7 @@ public final class ChangeHub {
 
         /** Waits up to waitMs for changes, then returns and clears them. */
         public synchronized long[] drain(long waitMs) throws InterruptedException {
-            if (pending.isEmpty() && !resync) {
+            if (pending.isEmpty() && !resync && !terminalsChanged && orderResults.isEmpty()) {
                 wait(waitMs);
             }
             long[] keys = pending.toLongArray();

@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "createtradelogisticsoverhaul:block/logistics_terminal" },
+    "facing=east":  { "model": "createtradelogisticsoverhaul:block/logistics_terminal", "y": 90 },
+    "facing=south": { "model": "createtradelogisticsoverhaul:block/logistics_terminal", "y": 180 },
+    "facing=west":  { "model": "createtradelogisticsoverhaul:block/logistics_terminal", "y": 270 }
+  }
+}

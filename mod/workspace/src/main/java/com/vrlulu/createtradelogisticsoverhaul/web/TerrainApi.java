@@ -1,6 +1,8 @@
 package com.vrlulu.createtradelogisticsoverhaul.web;
 
 import com.sun.net.httpserver.HttpExchange;
+import com.vrlulu.createtradelogisticsoverhaul.net.ClientTerminals;
+import com.vrlulu.createtradelogisticsoverhaul.net.Payloads;
 import com.vrlulu.createtradelogisticsoverhaul.terrain.BlockAssets;
 import com.vrlulu.createtradelogisticsoverhaul.terrain.ChangeHub;
 import com.vrlulu.createtradelogisticsoverhaul.terrain.TerrainStore;
@@ -121,6 +123,19 @@ public class TerrainApi {
             long lastPing = System.currentTimeMillis();
             while (true) {
                 long[] keys = sub.drain(1000);
+                for (String result : sub.takeOrderResults()) {
+                    boolean ok = result.startsWith("ok|");
+                    out.write(("event: order\ndata: {\"ok\":" + ok + ",\"message\":\""
+                            + result.substring(result.indexOf('|') + 1).replace("\"", "'")
+                            + "\"}\n\n").getBytes(StandardCharsets.UTF_8));
+                    out.flush();
+                    lastPing = System.currentTimeMillis();
+                }
+                if (sub.takeTerminalsChanged()) {
+                    out.write("event: terminals\ndata: {}\n\n".getBytes(StandardCharsets.UTF_8));
+                    out.flush();
+                    lastPing = System.currentTimeMillis();
+                }
                 if (sub.takeResync()) {
                     out.write("event: resync\ndata: {}\n\n".getBytes(StandardCharsets.UTF_8));
                     out.flush();
@@ -155,6 +170,77 @@ public class TerrainApi {
         } finally {
             ChangeHub.get().unsubscribe(sub);
         }
+    }
+
+    /** The terminals the player can see, with their stock. */
+    public void terminals(HttpExchange ex) throws IOException {
+        ClientTerminals.requestRefresh(false);
+        StringBuilder out = new StringBuilder(1 << 14);
+        out.append("{\"updatedAt\":").append(ClientTerminals.updatedAt()).append(",\"terminals\":[");
+        List<Payloads.TerminalInfo> list = ClientTerminals.get();
+        for (int i = 0; i < list.size(); i++) {
+            Payloads.TerminalInfo t = list.get(i);
+            out.append(i == 0 ? "" : ",")
+                    .append("{\"x\":").append(t.pos().getX())
+                    .append(",\"y\":").append(t.pos().getY())
+                    .append(",\"z\":").append(t.pos().getZ())
+                    .append(",\"dimension\":\"").append(esc(t.dimension())).append('"')
+                    .append(",\"name\":\"").append(esc(t.name())).append('"')
+                    .append(",\"address\":\"").append(esc(t.address())).append('"')
+                    .append(",\"owner\":\"").append(esc(t.owner())).append('"')
+                    .append(",\"tuned\":").append(t.tuned())
+                    .append(",\"stock\":[");
+            List<Payloads.StockLine> stock = t.stock();
+            for (int j = 0; j < stock.size(); j++) {
+                Payloads.StockLine line = stock.get(j);
+                out.append(j == 0 ? "" : ",")
+                        .append("{\"item\":\"").append(esc(line.item())).append('"')
+                        .append(",\"name\":\"").append(esc(line.display())).append('"')
+                        .append(",\"count\":").append(line.count()).append('}');
+            }
+            out.append("]}");
+        }
+        out.append("]}");
+        Http.json(ex, 200, out.toString());
+    }
+
+    /** Places an order: {"x":..,"y":..,"z":..,"item":"minecraft:iron_ingot","count":64,"address":"PD-C01-B02"} */
+    public void order(HttpExchange ex) throws IOException {
+        String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+        try {
+            int x = (int) jsonNumber(body, "x"), y = (int) jsonNumber(body, "y"), z = (int) jsonNumber(body, "z");
+            int count = (int) jsonNumber(body, "count");
+            String item = jsonString(body, "item");
+            String address = jsonString(body, "address");
+            if (item.isEmpty() || address.isEmpty() || count <= 0) {
+                Http.json(ex, 400, "{\"error\":\"item, count and address are required\"}");
+                return;
+            }
+            ClientTerminals.order(new net.minecraft.core.BlockPos(x, y, z), item, count, address);
+            Http.json(ex, 202, "{\"accepted\":true}");
+        } catch (RuntimeException e) {
+            Http.json(ex, 400, "{\"error\":\"bad request\"}");
+        }
+    }
+
+    private static String esc(String s) {
+        return s == null ? "" : s.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    /** Tiny JSON readers: the page only ever sends these flat objects. */
+    private static double jsonNumber(String json, String key) {
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("\"" + key + "\"\\s*:\\s*(-?[0-9.]+)").matcher(json);
+        if (!m.find()) {
+            throw new IllegalArgumentException(key);
+        }
+        return Double.parseDouble(m.group(1));
+    }
+
+    private static String jsonString(String json, String key) {
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("\"" + key + "\"\\s*:\\s*\"([^\"]*)\"").matcher(json);
+        return m.find() ? m.group(1) : "";
     }
 
     /** The page's "Full re-sync" button: re-read everything from Voxy. */

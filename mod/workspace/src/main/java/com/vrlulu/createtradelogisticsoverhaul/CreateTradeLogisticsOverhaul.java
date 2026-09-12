@@ -1,6 +1,7 @@
 package com.vrlulu.createtradelogisticsoverhaul;
 
 import com.mojang.logging.LogUtils;
+import com.vrlulu.createtradelogisticsoverhaul.logistics.ModContent;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
@@ -19,5 +20,6 @@ public class CreateTradeLogisticsOverhaul {
 
     public CreateTradeLogisticsOverhaul(IEventBus modBus, ModContainer container) {
         LOG.info("Create Trade Logistics Overhaul loading");
+        ModContent.register(modBus);
     }
 }

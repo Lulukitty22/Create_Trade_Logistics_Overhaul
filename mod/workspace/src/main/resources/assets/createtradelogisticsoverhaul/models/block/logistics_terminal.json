@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/orientable",
+  "textures": {
+    "top": "createtradelogisticsoverhaul:block/logistics_terminal_top",
+    "front": "createtradelogisticsoverhaul:block/logistics_terminal_front",
+    "side": "createtradelogisticsoverhaul:block/logistics_terminal_side"
+  }
+}

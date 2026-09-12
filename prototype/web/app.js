@@ -2,6 +2,7 @@
 // Sections are fetched on demand as the LOD octree refines, and live changes arrive over SSE.
 import * as THREE from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
+import { Terminals } from './terminals.js';
 
 const P = 34;                        // padded section size for the mesher
 const KIND_SOLID = 1, KIND_WATER = 2;
@@ -111,6 +112,8 @@ async function loadAssets() {
     assetCounts.models = count;
   }
 }
+
+const terminals = new Terminals(scene, camera, renderer);
 
 // ---------- world state ----------
 let world = null;          // /api/world JSON (palette, names, biomes, start, ...)
@@ -405,6 +408,7 @@ async function loadWorld(first) {
     controls.update();
   }
   lastChange = world.lastChange ? world.lastChange * 1000 : null;
+  terminals.refresh();
   selectionDirty = true;
 }
 
@@ -424,6 +428,11 @@ function connectLive() {
     selectionDirty = true;
   });
   es.addEventListener('resync', () => loadWorld(false));
+  es.addEventListener('terminals', () => terminals.refresh());
+  es.addEventListener('order', (e) => {
+    const d = JSON.parse(e.data);
+    terminals.setStatus(d.message, false);
+  });
 }
 
 // ---------- UI ----------
@@ -536,7 +545,7 @@ function updateStats() {
 const nextFrame = new URLSearchParams(location.search).has('timer')
   ? (cb) => setTimeout(cb, 16) : (cb) => requestAnimationFrame(cb);
 const clock = new THREE.Clock();
-let frames = 0, fpsTime = 0, fps = 0;
+let frames = 0, fpsTime = 0, fps = 0, lastTerminalPoll = 0;
 const lastSelCam = new THREE.Vector3(1e9, 0, 0);
 function animate() {
   nextFrame(animate);
@@ -551,9 +560,13 @@ function animate() {
   const now = performance.now();
   updateFlashes(now);
   renderer.render(scene, camera);
+  terminals.updateLabels();
   if (mouseDirty && now - lastPick > 60) { lastPick = now; pick(); }
   frames++;
-  if (now - fpsTime > 500) { fps = Math.round(frames * 1000 / (now - fpsTime)); frames = 0; fpsTime = now; updateStats(); }
+  if (now - fpsTime > 500) {
+    fps = Math.round(frames * 1000 / (now - fpsTime)); frames = 0; fpsTime = now; updateStats();
+    if (now - lastTerminalPoll > 5000) { lastTerminalPoll = now; terminals.refresh(); }
+  }
 }
 
 // Debug handle for the devtools console.

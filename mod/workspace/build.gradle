@@ -37,6 +37,8 @@ if (file('local.properties').exists()) {
     file('local.properties').withInputStream { localProps.load(it) }
 }
 def voxyJar = localProps.getProperty('voxy_jar', '')
+// Create, from the modpack, for the same reason (local.properties: create_jar)
+def createJar = localProps.getProperty('create_jar', '')
 // Optional: a modpack mods folder to drop built jars into (local.properties: mods_dir)
 def modsDir = localProps.getProperty('mods_dir', '')
 
@@ -45,6 +47,11 @@ dependencies {
         compileOnly files(voxyJar)
     } else {
         logger.lifecycle('No Voxy jar configured (local.properties: voxy_jar) - terrain code will not compile.')
+    }
+    if (createJar && file(createJar).exists()) {
+        compileOnly files(createJar)
+    } else {
+        logger.lifecycle('No Create jar configured (local.properties: create_jar) - logistics code will not compile.')
     }
 }
 
