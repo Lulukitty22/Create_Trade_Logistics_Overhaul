@@ -30,6 +30,7 @@ public final class DispatchJson {
             entry.addProperty("address", plan.address());
             entry.addProperty("packages", plan.packages());
             entry.addProperty("possible", plan.isPossible());
+            entry.addProperty("alreadyAboard", plan.alreadyAboard());
             entry.addProperty("problem", plan.problem() == null ? "" : plan.problem());
             JsonArray stops = new JsonArray();
             plan.stops().forEach(stops::add);
@@ -56,6 +57,10 @@ public final class DispatchJson {
             entry.addProperty("graph", station.graph());
             entry.addProperty("hasReversePoint", station.hasReversePoint());
             entry.addProperty("packagesWaiting", station.packagesWaiting());
+            entry.addProperty("pos", station.pos());
+            JsonArray portPositions = new JsonArray();
+            station.portPositions().forEach(portPositions::add);
+            entry.add("portPositions", portPositions);
             JsonArray addresses = new JsonArray();
             station.portAddresses().forEach(addresses::add);
             entry.add("portAddresses", addresses);

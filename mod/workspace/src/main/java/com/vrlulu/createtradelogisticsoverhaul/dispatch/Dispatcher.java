@@ -52,7 +52,13 @@ public final class Dispatcher {
 
     /** A planned run for one courier. */
     public record Plan(String trainName, UUID trainId, String pickupStation, String dropStation,
-                       String address, int packages, List<String> stops, String problem) {
+                       String address, int packages, List<String> stops, String problem,
+                       boolean alreadyAboard) {
+        public Plan(String trainName, UUID trainId, String pickupStation, String dropStation,
+                    String address, int packages, List<String> stops, String problem) {
+            this(trainName, trainId, pickupStation, dropStation, address, packages, stops, problem, false);
+        }
+
         public boolean isPossible() {
             return problem == null;
         }
@@ -170,12 +176,72 @@ public final class Dispatcher {
             plans.add(new Plan(courier.name.getString(), courier.id, pickup.name, drop.name,
                     waiting.toAddress(), waiting.count(), stops, null));
         }
+        plans.addAll(planLoadedTrains());
         return plans;
+    }
+
+    /**
+     * Runs for packages that are already on board an idle train.
+     *
+     * <p>A postbox hands its packages to whatever train is standing at the station, so a van parked
+     * at its own depot is loaded the moment one is made. Nothing is then waiting in any postbox, and
+     * without this the train would sit there for good, holding goods nobody had told it to deliver.
+     */
+    private static List<Plan> planLoadedTrains() {
+        List<Plan> plans = new ArrayList<>();
+        for (Train train : Create.RAILWAYS.trains.values()) {
+            if (train.derailed || train.invalid || isBusy(train)) {
+                continue;
+            }
+            for (Map.Entry<String, Integer> entry : packagesAboard(train).entrySet()) {
+                String address = entry.getKey();
+                GlobalStation drop = stationServing(address);
+                if (drop == null) {
+                    plans.add(new Plan(train.name.getString(), null, "aboard", "?", address,
+                            entry.getValue(), List.of(), "no station serves " + address, true));
+                    continue;
+                }
+                if (!train.hasForwardConductor() && !train.hasBackwardConductor()) {
+                    plans.add(new Plan(train.name.getString(), null, "aboard", drop.name, address,
+                            entry.getValue(), List.of(),
+                            "train '" + train.name.getString() + "' has no conductor", true));
+                    continue;
+                }
+                List<String> stops = new ArrayList<>();
+                GlobalStation dropReverse = reversePointFor(drop, address);
+                if (dropReverse != null) {
+                    stops.add(dropReverse.name);
+                }
+                stops.add(drop.name);
+                stops.add("deliver packages");
+                plans.add(new Plan(train.name.getString(), train.id, "aboard", drop.name, address,
+                        entry.getValue(), stops, null, true));
+            }
+        }
+        return plans;
+    }
+
+    /** Packages riding in a train's carriages, grouped by the address they are bound for. */
+    private static Map<String, Integer> packagesAboard(Train train) {
+        Map<String, Integer> byAddress = new LinkedHashMap<>();
+        for (com.simibubi.create.content.trains.entity.Carriage carriage : train.carriages) {
+            net.neoforged.neoforge.items.IItemHandlerModifiable inventory = carriage.storage.getAllItems();
+            if (inventory == null) {
+                continue;
+            }
+            countPackages(inventory, byAddress);
+        }
+        return byAddress;
+    }
+
+    private static String showPos(BlockPos pos) {
+        return pos == null ? "" : pos.getX() + "," + pos.getY() + "," + pos.getZ();
     }
 
     /** One station as the diagnostics see it. */
     public record StationInfo(String name, String graph, boolean hasReversePoint,
-                              List<String> portAddresses, int packagesWaiting) {
+                              List<String> portAddresses, int packagesWaiting,
+                              String pos, List<String> portPositions) {
     }
 
     /** Every station Create knows about, for working out why a run is planned the way it is. */
@@ -188,12 +254,15 @@ public final class Dispatcher {
         for (TrackGraph graph : Create.RAILWAYS.trackNetworks.values()) {
             for (GlobalStation station : graph.getPoints(EdgePointType.STATION)) {
                 List<String> addresses = new ArrayList<>();
-                for (GlobalPackagePort port : station.connectedPorts.values()) {
-                    addresses.add(port.address == null ? "" : port.address);
+                List<String> portPositions = new ArrayList<>();
+                for (Map.Entry<BlockPos, GlobalPackagePort> port : station.connectedPorts.entrySet()) {
+                    addresses.add(port.getValue().address == null ? "" : port.getValue().address);
+                    portPositions.add(showPos(port.getKey()));
                 }
                 out.add(new StationInfo(station.name, graph.id.toString().substring(0, 8),
-                        stationNamed(station.name + REVERSE_SUFFIX) != null, addresses,
-                        waitingByStation.getOrDefault(station.name, 0)));
+                        reversePointFor(station, addressOf(station)) != null, addresses,
+                        waitingByStation.getOrDefault(station.name, 0),
+                        showPos(station.blockEntityPos), portPositions));
             }
         }
         return out;
@@ -255,21 +324,26 @@ public final class Dispatcher {
         }
         Schedule schedule = new Schedule();
         schedule.cyclic = false;
-        GlobalStation pickup = stationNamed(plan.pickupStation());
         GlobalStation drop = stationNamed(plan.dropStation());
-        if (pickup == null || drop == null) {
+        if (drop == null) {
+            return false;
+        }
+        GlobalStation pickup = plan.alreadyAboard() ? null : stationNamed(plan.pickupStation());
+        if (!plan.alreadyAboard() && pickup == null) {
             return false;
         }
         // Name both stations explicitly. Create's fetch and deliver instructions find a station by
         // themselves - any station holding a matching package - so on their own they undo the point
         // of dispatching: the train would go wherever Create fancied rather than where it was sent.
         // This also makes the schedule match the plan the map showed, stop for stop.
-        GlobalStation pickupReverse = reversePointFor(pickup, addressOf(pickup));
-        if (pickupReverse != null) {
-            schedule.entries.add(entry(destination(pickupReverse.name, registries), delay(registries, 1)));
+        if (pickup != null) {
+            GlobalStation pickupReverse = reversePointFor(pickup, addressOf(pickup));
+            if (pickupReverse != null) {
+                schedule.entries.add(entry(destination(pickupReverse.name, registries), delay(registries, 1)));
+            }
+            schedule.entries.add(entry(destination(pickup.name, registries), cargoIdle(registries, 3)));
+            schedule.entries.add(entry(fetchPackages(plan.address(), registries), cargoIdle(registries, 3)));
         }
-        schedule.entries.add(entry(destination(pickup.name, registries), cargoIdle(registries, 3)));
-        schedule.entries.add(entry(fetchPackages(plan.address(), registries), cargoIdle(registries, 3)));
         GlobalStation dropReverse = reversePointFor(drop, plan.address());
         if (dropReverse != null) {
             schedule.entries.add(entry(destination(dropReverse.name, registries), delay(registries, 1)));
@@ -402,14 +476,18 @@ public final class Dispatcher {
         return null;
     }
 
+    /** A train is busy while it still has a schedule it has not finished. */
+    private static boolean isBusy(Train train) {
+        return train.runtime.getSchedule() != null && !train.runtime.completed;
+    }
+
     /** A train on that network with nothing to do. */
     private static Train freeTrainOn(TrackGraph graph) {
         for (Train train : Create.RAILWAYS.trains.values()) {
             if (train.graph != graph || train.derailed || train.invalid) {
                 continue;
             }
-            boolean busy = train.runtime.getSchedule() != null && !train.runtime.completed;
-            if (!busy) {
+            if (!isBusy(train)) {
                 return train;
             }
         }

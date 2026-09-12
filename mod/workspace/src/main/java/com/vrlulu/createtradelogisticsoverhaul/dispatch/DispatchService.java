@@ -37,7 +37,13 @@ public final class DispatchService {
     private static final int ESCROW_INTERVAL_TICKS = 100;        // 5s
     private static final int SUPPLY_INTERVAL_TICKS = 600;        // 30s
 
-    private static boolean enabled = false;
+    /**
+     * On by default, and saved with the world: a switch you have to set again after every restart is
+     * a switch that silently stops working. Terminals still each need their own "auto dispatch"
+     * setting, so this on its own moves nothing.
+     */
+    private static boolean enabled = true;
+    private static boolean loaded;
     private static int ticks;
     /** When each (station -> address) group was first seen waiting, for the deadline trigger. */
     private static final Map<String, Long> waitingSince = new HashMap<>();
@@ -52,12 +58,57 @@ public final class DispatchService {
     public static void setEnabled(boolean value) {
         enabled = value;
         waitingSince.clear();
+        Settings.save(value);
+    }
+
+    /** The saved switch, kept with the world so it survives a restart. */
+    public static class Settings extends net.minecraft.world.level.saveddata.SavedData {
+        private static final String FILE = "createtradelogisticsoverhaul_dispatch";
+        private static net.minecraft.server.MinecraftServer server;
+        private boolean autoDispatch = true;
+
+        public static void load(net.minecraft.server.MinecraftServer minecraftServer) {
+            server = minecraftServer;
+            enabled = of(minecraftServer).autoDispatch;
+            loaded = true;
+        }
+
+        static void save(boolean value) {
+            if (server == null) {
+                return;
+            }
+            Settings settings = of(server);
+            settings.autoDispatch = value;
+            settings.setDirty();
+        }
+
+        private static Settings of(net.minecraft.server.MinecraftServer minecraftServer) {
+            return minecraftServer.overworld().getDataStorage().computeIfAbsent(
+                    new net.minecraft.world.level.saveddata.SavedData.Factory<>(Settings::new, Settings::read), FILE);
+        }
+
+        private static Settings read(net.minecraft.nbt.CompoundTag tag,
+                                     net.minecraft.core.HolderLookup.Provider registries) {
+            Settings settings = new Settings();
+            settings.autoDispatch = !tag.contains("AutoDispatch") || tag.getBoolean("AutoDispatch");
+            return settings;
+        }
+
+        @Override
+        public net.minecraft.nbt.CompoundTag save(net.minecraft.nbt.CompoundTag tag,
+                                                  net.minecraft.core.HolderLookup.Provider registries) {
+            tag.putBoolean("AutoDispatch", autoDispatch);
+            return tag;
+        }
     }
 
     @SubscribeEvent
     public static void onServerTick(ServerTickEvent.Post event) {
         ticks++;
         MinecraftServer server = event.getServer();
+        if (!loaded) {
+            Settings.load(server);
+        }
         // Held payments are settled whether or not automatic dispatch is on: someone's money is
         // waiting on a delivery either way.
         if (ticks % ESCROW_INTERVAL_TICKS == 0) {
