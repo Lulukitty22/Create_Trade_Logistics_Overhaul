@@ -1,0 +1,17 @@
+# Python prototype
+prototype/__pycache__/
+*.pyc
+# Snapshot mirrors of Voxy databases (hundreds of MB)
+prototype/.cache/
+
+# Mod build output
+mod/workspace/build/
+mod/workspace/.gradle/
+mod/workspace/run/
+mod/jars/
+
+# Locally downloaded Gradle distribution
+mod/tools/
+
+# Machine-specific paths
+mod/workspace/local.properties

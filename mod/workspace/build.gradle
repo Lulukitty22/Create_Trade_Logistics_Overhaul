@@ -1,0 +1,67 @@
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev' version '2.0.147'
+}
+
+version = mod_version
+group = mod_group_id
+base.archivesName = mod_id
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+neoForge {
+    version = project.neo_version
+
+    runs {
+        client {
+            client()
+            gameDirectory = file('run/client')
+        }
+        server {
+            server()
+            gameDirectory = file('run/server')
+        }
+    }
+
+    mods {
+        "${mod_id}" {
+            sourceSet(sourceSets.main)
+        }
+    }
+}
+
+// Voxy is present at runtime (it ships in the modpack); we only compile against it.
+// Put your own path in local.properties (ignored by git):  voxy_jar=C:/.../mods/voxy-0.2.9-alpha.jar
+def localProps = new Properties()
+if (file('local.properties').exists()) {
+    file('local.properties').withInputStream { localProps.load(it) }
+}
+def voxyJar = localProps.getProperty('voxy_jar', '')
+
+dependencies {
+    if (voxyJar && file(voxyJar).exists()) {
+        compileOnly files(voxyJar)
+    } else {
+        logger.lifecycle('No Voxy jar configured (local.properties: voxy_jar) - terrain code will not compile.')
+    }
+}
+
+// The browser page is shared with the Python prototype rather than duplicated.
+tasks.named('processResources', ProcessResources).configure {
+    def props = [minecraft_version: minecraft_version, neo_version: neo_version, mod_version: mod_version,
+                 mod_id: mod_id, mod_name: mod_name, mod_license: mod_license, mod_authors: mod_authors,
+                 mod_description: mod_description]
+    inputs.properties props
+    filesMatching('META-INF/neoforge.mods.toml') { expand props }
+    from(file("$projectDir/../../prototype/web")) { into "assets/${mod_id}/web" }
+}
+
+// Finished jars land next to the workspace, in mod/jars
+tasks.named('jar', Jar).configure {
+    destinationDirectory = file("$projectDir/../jars")
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}

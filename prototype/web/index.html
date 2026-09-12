@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Logistics Map</title>
+<style>
+  :root {
+    --panel: rgba(18, 20, 26, 0.86);
+    --line: rgba(255, 255, 255, 0.09);
+    --text: #e6e8ee;
+    --muted: #9aa1b2;
+    --accent: #e0a040;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #a9c8e8; font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--text); }
+  canvas { display: block; }
+  .panel { position: absolute; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; backdrop-filter: blur(6px); }
+  #hud { top: 12px; left: 12px; width: 270px; padding: 12px 14px; }
+  #hud h1 { font-size: 14px; margin: 0 0 2px; font-weight: 600; letter-spacing: 0.01em; }
+  #hud .sub { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+  #status { color: var(--accent); font-size: 12px; min-height: 17px; display: inline; }
+  .statusline { display: flex; align-items: center; gap: 7px; }
+  #live { width: 8px; height: 8px; border-radius: 50%; background: #6b7080; flex: none; }
+  #live.on { background: #4cd17a; box-shadow: 0 0 0 3px rgba(76, 209, 122, 0.18); }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 7px 0; }
+  .row label { color: var(--text); }
+  .row input[type=range] { width: 120px; accent-color: var(--accent); }
+  .row input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; }
+  .stats { display: grid; grid-template-columns: auto auto; gap: 1px 12px; font-size: 12px; color: var(--muted); margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+  .stats b { color: var(--text); font-weight: 500; text-align: right; }
+  button { width: 100%; margin-top: 8px; padding: 7px; border-radius: 7px; border: 1px solid var(--line); background: rgba(255,255,255,0.06); color: var(--text); font: inherit; cursor: pointer; }
+  button:hover { background: rgba(255,255,255,0.12); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #help { bottom: 12px; left: 12px; padding: 8px 12px; color: var(--muted); font-size: 12px; }
+  #help kbd { color: var(--text); font: inherit; background: rgba(255,255,255,0.08); border-radius: 4px; padding: 0 5px; }
+  #tip { position: absolute; pointer-events: none; padding: 7px 10px; font-size: 12px; display: none; white-space: nowrap; }
+  #tip .name { font-weight: 600; }
+  #tip .ns { color: var(--muted); font-weight: 400; }
+  #tip .meta { color: var(--muted); font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<div id="hud" class="panel">
+  <h1 id="world-name">Logistics Map</h1>
+  <div class="sub">Voxy LOD terrain · prototype</div>
+  <div class="statusline"><span id="live"></span><div id="status">Loading…</div></div>
+  <div class="row"><label for="detail">Detail distance</label><input id="detail" type="range" min="0.5" max="10" step="0.25" value="3"></div>
+  <div class="row"><label for="textures">Textures</label><input id="textures" type="checkbox" checked></div>
+  <div class="row"><label for="caves">Show caves</label><input id="caves" type="checkbox"></div>
+  <div class="row"><label for="lodtint">Colour by LOD level</label><input id="lodtint" type="checkbox"></div>
+  <div class="row"><label for="flash">Highlight live updates</label><input id="flash" type="checkbox" checked></div>
+  <button id="refresh">Full re-sync from game</button>
+  <div class="stats" id="stats"></div>
+</div>
+<div id="help" class="panel"><kbd>Left drag</kbd> pan · <kbd>Right drag</kbd> rotate · <kbd>Wheel</kbd> zoom · <kbd>WASD</kbd> move · <kbd>Q</kbd>/<kbd>E</kbd> down/up</div>
+<div id="tip" class="panel"></div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+<script type="module" src="app.js"></script>
+</body>
+</html>

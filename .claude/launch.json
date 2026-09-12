@@ -1,0 +1,27 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "logistics-map",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "prototype/serve.py",
+        "--port",
+        "8765"
+      ],
+      "port": 8765
+    },
+    {
+      "name": "logistics-map-big",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "prototype/serve.py",
+        "--port",
+        "8766",
+        "--world",
+        "C:\\Users\\Nicol\\AppData\\Roaming\\ModrinthApp\\profiles\\Create Aeronautics\\saves\\New World (2)"
+      ],
+      "port": 8766
+    }
+  ]
+}
