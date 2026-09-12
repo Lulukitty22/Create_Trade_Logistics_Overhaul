@@ -34,6 +34,12 @@ public class TerrainStore {
     private long rootsAt;
     private int rootsSeedX, rootsSeedZ;
 
+    /** Forgets cached roots, so the next request re-discovers what Voxy has. */
+    public synchronized void invalidate() {
+        cachedRoots = List.of();
+        rootsAt = 0;
+    }
+
     public TerrainPalette palette() {
         return palette;
     }

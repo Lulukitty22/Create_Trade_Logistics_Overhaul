@@ -34,6 +34,13 @@ public final class ChangeHub {
         return !subscriptions.isEmpty();
     }
 
+    /** Tells every open page to reload from scratch (after a re-sync). */
+    public void requestResync() {
+        for (Subscription sub : subscriptions) {
+            sub.markResync();
+        }
+    }
+
     public Subscription subscribe() {
         Subscription sub = new Subscription();
         subscriptions.add(sub);
@@ -47,6 +54,19 @@ public final class ChangeHub {
     public static final class Subscription {
         private final LongOpenHashSet pending = new LongOpenHashSet();
         private boolean overflowed;
+        private boolean resync;
+
+        private synchronized void markResync() {
+            resync = true;
+            notifyAll();
+        }
+
+        /** True once, after a re-sync was requested. */
+        public synchronized boolean takeResync() {
+            boolean was = resync;
+            resync = false;
+            return was;
+        }
 
         private synchronized void add(long key) {
             if (pending.size() >= MAX_PENDING) {
@@ -59,7 +79,7 @@ public final class ChangeHub {
 
         /** Waits up to waitMs for changes, then returns and clears them. */
         public synchronized long[] drain(long waitMs) throws InterruptedException {
-            if (pending.isEmpty()) {
+            if (pending.isEmpty() && !resync) {
                 wait(waitMs);
             }
             long[] keys = pending.toLongArray();

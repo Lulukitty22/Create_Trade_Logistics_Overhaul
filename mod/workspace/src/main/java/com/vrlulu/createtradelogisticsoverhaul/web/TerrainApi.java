@@ -121,6 +121,11 @@ public class TerrainApi {
             long lastPing = System.currentTimeMillis();
             while (true) {
                 long[] keys = sub.drain(1000);
+                if (sub.takeResync()) {
+                    out.write("event: resync\ndata: {}\n\n".getBytes(StandardCharsets.UTF_8));
+                    out.flush();
+                    lastPing = System.currentTimeMillis();
+                }
                 if (keys.length == 0) {
                     if (System.currentTimeMillis() - lastPing > 15_000) {
                         out.write(": ping\n\n".getBytes(StandardCharsets.UTF_8));
@@ -150,6 +155,13 @@ public class TerrainApi {
         } finally {
             ChangeHub.get().unsubscribe(sub);
         }
+    }
+
+    /** The page's "Full re-sync" button: re-read everything from Voxy. */
+    public void resync(HttpExchange ex) throws IOException {
+        store.invalidate();
+        ChangeHub.get().requestResync();
+        Http.json(ex, 200, "{\"ok\":true}");
     }
 
     /** "VXA1", u32 layer count, u32 size, then RGBA pixels per layer. */

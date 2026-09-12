@@ -41,11 +41,13 @@ public class BlockAssets {
      * kind: see TerrainPalette; faces: texture layer per direction; tintMask: bit per direction;
      * model: index into the baked model list, or -1 for plain cubes.
      */
-    public record BlockInfo(int kind, int[] faces, int tintMask, boolean cubeAtLod, int model) {
+    public record BlockInfo(int kind, int[] faces, int tintMask, boolean cubeAtLod, int model,
+                           int rot, boolean waterlogged) {
     }
 
     private final Map<String, Integer> layerByKey = new HashMap<>();
     private final List<byte[]> layers = new ArrayList<>();     // TEX*TEX*4 RGBA each
+    private final List<int[]> layerAverages = new ArrayList<>();
     private final List<float[]> models = new ArrayList<>();    // one float[n * 24] per model
     private final Map<BlockState, BlockInfo> infoCache = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -58,11 +60,29 @@ public class BlockAssets {
             missing[i * 4 + 3] = (byte) 0xFF;
         }
         layers.add(missing);
+        layerAverages.add(new int[]{192, 64, 192});
         layerByKey.put("<missing>", 0);
     }
 
     public synchronized int layerCount() {
         return layers.size();
+    }
+
+    /** Alpha-weighted average colour of a layer, used by the flat-colour mode. */
+    public synchronized int[] layerAverage(int layer) {
+        return layer >= 0 && layer < layerAverages.size() ? layerAverages.get(layer) : new int[]{128, 128, 128};
+    }
+
+    private static int[] averageOf(byte[] rgba) {
+        long r = 0, g = 0, b = 0, a = 0;
+        for (int i = 0; i < TEX * TEX; i++) {
+            int alpha = rgba[i * 4 + 3] & 0xFF;
+            r += (long) (rgba[i * 4] & 0xFF) * alpha;
+            g += (long) (rgba[i * 4 + 1] & 0xFF) * alpha;
+            b += (long) (rgba[i * 4 + 2] & 0xFF) * alpha;
+            a += alpha;
+        }
+        return a == 0 ? new int[]{128, 128, 128} : new int[]{(int) (r / a), (int) (g / a), (int) (b / a)};
     }
 
     public synchronized int modelCount() {
@@ -117,7 +137,7 @@ public class BlockAssets {
 
     private BlockInfo computeInfo(BlockState state) {
         if (state.isAir()) {
-            return new BlockInfo(TerrainPalette.KIND_AIR, new int[6], 0, false, -1);
+            return new BlockInfo(TerrainPalette.KIND_AIR, new int[6], 0, false, -1, 0, false);
         }
         FluidState fluid = state.getFluidState();
         if (state.getBlock() instanceof LiquidBlock && !fluid.isEmpty()) {
@@ -126,13 +146,16 @@ public class BlockAssets {
             int[] faces = new int[6];
             java.util.Arrays.fill(faces, layer);
             return new BlockInfo(water ? TerrainPalette.KIND_WATER : TerrainPalette.KIND_SOLID,
-                    faces, water ? 0x3F : 0, false, -1);
+                    faces, water ? 0x3F : 0, false, -1, 0, water);
         }
 
         boolean leaves = state.getBlock() instanceof LeavesBlock;
         boolean fullCube = isFullCube(state);
+        // A non-liquid block holding fluid (waterlogged slab, kelp, seagrass) still needs water drawn.
+        boolean waterlogged = !state.getFluidState().isEmpty();
         int[] faces = new int[6];
         int tintMask = 0;
+        int rot = 0;
         boolean anyFace = false;
         for (int d = 0; d < 6; d++) {
             TextureAtlasSprite sprite = spriteOf(state, DIRS[d]);
@@ -142,6 +165,7 @@ public class BlockAssets {
                 if (isTinted(state, DIRS[d])) {
                     tintMask |= 1 << d;
                 }
+                rot |= faceRotation(state, DIRS[d], d) << (2 * d);
             }
         }
         if (!anyFace) {
@@ -153,10 +177,10 @@ public class BlockAssets {
             // and as cubes at coarse LODs when they fill enough of the block (as Voxy's LODs do).
             int model = bakeModel(state, leaves);
             boolean chunky = volumeFraction(state) >= 0.2;
-            return new BlockInfo(TerrainPalette.KIND_MODEL, faces, tintMask, chunky, model);
+            return new BlockInfo(TerrainPalette.KIND_MODEL, faces, tintMask, chunky, model, rot, waterlogged);
         }
         int kind = leaves || state.canOcclude() ? TerrainPalette.KIND_SOLID : TerrainPalette.KIND_GLASS;
-        return new BlockInfo(kind, faces, tintMask, true, -1);
+        return new BlockInfo(kind, faces, tintMask, true, -1, rot, waterlogged);
     }
 
     /**
@@ -223,6 +247,66 @@ public class BlockAssets {
         }
     }
 
+    /**
+     * How far the texture is turned on this face, in quarter turns. Without it a sideways log shows
+     * its bark running the wrong way. Found by matching the quad's UVs against the default
+     * projection under each rotation.
+     */
+    private static int faceRotation(BlockState state, Direction dir, int dirIndex) {
+        try {
+            List<BakedQuad> quads = modelOf(state).getQuads(state, dir, RANDOM, ModelData.EMPTY, null);
+            if (quads.isEmpty()) {
+                return 0;
+            }
+            float[] quad = ModelBaker.convert(quads.get(0), 0, dirIndex);
+            if (quad == null) {
+                return 0;
+            }
+            int best = 0;
+            double bestError = Double.MAX_VALUE;
+            for (int r = 0; r < 4; r++) {
+                double error = 0;
+                for (int i = 0; i < 4; i++) {
+                    float[] projected = project(dirIndex, quad[i * 3], quad[i * 3 + 1], quad[i * 3 + 2]);
+                    float[] turned = turn(r, projected[0], projected[1]);
+                    error += sq(turned[0] - quad[12 + i * 2]) + sq(turned[1] - quad[13 + i * 2]);
+                }
+                if (error < bestError) {
+                    bestError = error;
+                    best = r;
+                }
+            }
+            return best;
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    private static double sq(double v) {
+        return v * v;
+    }
+
+    /** Minecraft's default UV projection for a face direction (v runs downwards). */
+    private static float[] project(int dir, float x, float y, float z) {
+        return switch (dir) {
+            case 0 -> new float[]{1 - z, 1 - y};
+            case 1 -> new float[]{z, 1 - y};
+            case 2 -> new float[]{x, z};
+            case 3 -> new float[]{x, 1 - z};
+            case 4 -> new float[]{x, 1 - y};
+            default -> new float[]{1 - x, 1 - y};
+        };
+    }
+
+    private static float[] turn(int quarterTurns, float u, float v) {
+        return switch (quarterTurns) {
+            case 1 -> new float[]{1 - v, u};
+            case 2 -> new float[]{1 - u, 1 - v};
+            case 3 -> new float[]{v, 1 - u};
+            default -> new float[]{u, v};
+        };
+    }
+
     private static boolean isFullCube(BlockState state) {
         try {
             return Block.isShapeFullBlock(state.getShape(Minecraft.getInstance().level, BlockPos.ZERO));
@@ -286,6 +370,7 @@ public class BlockAssets {
         }
         byte[] pixels = readTexture(name, fill);
         layers.add(pixels);
+        layerAverages.add(averageOf(pixels));
         int index = layers.size() - 1;
         layerByKey.put(key, index);
         return index;

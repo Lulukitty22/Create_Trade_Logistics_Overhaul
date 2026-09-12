@@ -24,11 +24,11 @@ import java.util.List;
 public class TerrainPalette {
     public static final int KIND_AIR = 0, KIND_SOLID = 1, KIND_WATER = 2, KIND_CAVE = 3,
             KIND_GLASS = 4, KIND_MODEL = 5;
-    public static final int FLAG_CUBE_AT_LOD = 1 << 7;
+    public static final int FLAG_WATERLOGGED = 1 << 6, FLAG_CUBE_AT_LOD = 1 << 7;
     public static final int GID_AIR = 0, GID_CAVE = 1;
     private static final int[] CAVE_RGB = {26, 24, 30};
     private static final BlockAssets.BlockInfo AIR_INFO =
-            new BlockAssets.BlockInfo(KIND_AIR, new int[6], 0, false, -1);
+            new BlockAssets.BlockInfo(KIND_AIR, new int[6], 0, false, -1, 0, false);
 
     private final BlockAssets assets = new BlockAssets();
     private final Long2IntOpenHashMap gidByKey = new Long2IntOpenHashMap();   // block<<32 | biome+1
@@ -38,14 +38,14 @@ public class TerrainPalette {
     private final List<int[]> top = new ArrayList<>(), side = new ArrayList<>(), tint = new ArrayList<>();
     private final List<int[]> faces = new ArrayList<>();
     private final List<Integer> flags = new ArrayList<>(), blockNameIndex = new ArrayList<>(),
-            biomeIndex = new ArrayList<>(), modelIndex = new ArrayList<>();
+            biomeIndex = new ArrayList<>(), modelIndex = new ArrayList<>(), rotations = new ArrayList<>();
     private final List<String> names = new ArrayList<>(), biomeNames = new ArrayList<>();
     private int waterLayer;
 
     public TerrainPalette() {
         gidByKey.defaultReturnValue(-1);
-        add(KIND_AIR, new int[]{0, 0, 0}, new int[]{0, 0, 0}, new int[6], 0, 0, -1, -1, -1);
-        add(KIND_CAVE, CAVE_RGB, CAVE_RGB, new int[6], 0, 0, -1, -1, -1);
+        add(KIND_AIR, new int[]{0, 0, 0}, new int[]{0, 0, 0}, new int[6], 0, 0, -1, -1, -1, 0);
+        add(KIND_CAVE, CAVE_RGB, CAVE_RGB, new int[6], 0, 0, -1, -1, -1, 0);
     }
 
     public BlockAssets assets() {
@@ -53,7 +53,7 @@ public class TerrainPalette {
     }
 
     private int add(int kind, int[] topRgb, int[] sideRgb, int[] faceLayers, int tintMask, int extraFlags,
-                    int nameIdx, int biomeIdx, int model) {
+                    int nameIdx, int biomeIdx, int model, int rot) {
         kinds.add(kind);
         top.add(topRgb);
         side.add(sideRgb);
@@ -63,6 +63,7 @@ public class TerrainPalette {
         blockNameIndex.add(nameIdx);
         biomeIndex.add(biomeIdx);
         modelIndex.add(model);
+        rotations.add(rot);
         return kinds.size() - 1;
     }
 
@@ -94,8 +95,9 @@ public class TerrainPalette {
                 return GID_AIR;
             }
         }
-        int[] rgb = mapColorOf(state);
-        int[] darker = {rgb[0] * 8 / 10, rgb[1] * 8 / 10, rgb[2] * 8 / 10};
+        int[] tintRgb = info.tintMask() != 0 ? tintFor(state, mapper, biomeId) : new int[]{255, 255, 255};
+        int[] rgb = flatColor(info, 2, tintRgb);
+        int[] darker = flatColor(info, 4, tintRgb);
         String name = state.getBlock().builtInRegistryHolder().key().location().toString();
         names.add(name);
         int biomeIdx = -1;
@@ -107,13 +109,14 @@ public class TerrainPalette {
                 biomeIdx = biomeNames.size() - 1;
             }
         }
-        int gid = add(info.kind(), rgb, darker, info.faces(), info.tintMask(),
-                info.cubeAtLod() ? FLAG_CUBE_AT_LOD : 0, names.size() - 1, biomeIdx, info.model());
+        int extraFlags = (info.cubeAtLod() ? FLAG_CUBE_AT_LOD : 0) | (info.waterlogged() ? FLAG_WATERLOGGED : 0);
+        int gid = add(info.kind(), rgb, darker, info.faces(), info.tintMask(), extraFlags,
+                names.size() - 1, biomeIdx, info.model(), info.rot());
         if (info.kind() == KIND_WATER && waterLayer == 0) {
             waterLayer = info.faces()[2];
         }
         if (tinted) {
-            tint.set(gid, tintFor(state, mapper, biomeId));
+            tint.set(gid, tintRgb);
         }
         gidByKey.put(key, gid);
         return gid;
@@ -157,6 +160,17 @@ public class TerrainPalette {
             // keep white
         }
         return new int[]{(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF};
+    }
+
+    /** Average colour of the face's texture, tinted if that face is tinted. */
+    private int[] flatColor(BlockAssets.BlockInfo info, int dir, int[] tintRgb) {
+        int[] base = assets.layerAverage(info.faces()[dir]);
+        boolean tinted = (info.tintMask() & (1 << dir)) != 0;
+        int shade = dir == 2 ? 100 : 80;
+        return new int[]{
+                base[0] * (tinted ? tintRgb[0] : 255) / 255 * shade / 100,
+                base[1] * (tinted ? tintRgb[1] : 255) / 255 * shade / 100,
+                base[2] * (tinted ? tintRgb[2] : 255) / 255 * shade / 100};
     }
 
     private static int[] mapColorOf(BlockState state) {
@@ -212,8 +226,8 @@ public class TerrainPalette {
             out.append(i == 0 ? "" : ",").append(modelIndex.get(i));
         }
         out.append("],\"rot\":[");
-        for (int i = 0; i < kinds.size(); i++) {
-            out.append(i == 0 ? "" : ",").append(0);
+        for (int i = 0; i < rotations.size(); i++) {
+            out.append(i == 0 ? "" : ",").append(rotations.get(i));
         }
         out.append("]},\"names\":[");
         appendStrings(out, names);
