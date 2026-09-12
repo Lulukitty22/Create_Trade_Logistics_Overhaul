@@ -235,6 +235,11 @@ public class TerrainApi {
                 + ",\"requested\":" + run + ",\"status\":" + ClientTerminals.dispatchJson() + "}");
     }
 
+    /** Create's railway in this dimension: track, stations and where the trains are. */
+    public void rails(HttpExchange ex) throws IOException {
+        Http.json(ex, 200, com.vrlulu.createtradelogisticsoverhaul.terrain.RailMap.toJson());
+    }
+
     /** Places an order: {"x":..,"y":..,"z":..,"item":"minecraft:iron_ingot","count":64,"address":"PD-C01-B02"} */
     public void order(HttpExchange ex) throws IOException {
         String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);

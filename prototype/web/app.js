@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import { Terminals } from './terminals.js';
+import { Rails } from './rails.js';
 
 const P = 34;                        // padded section size for the mesher
 const KIND_SOLID = 1, KIND_WATER = 2;
@@ -16,6 +17,7 @@ const $ = (id) => document.getElementById(id);
 const ui = {
   status: $('status'), live: $('live'), stats: $('stats'), detail: $('detail'), caves: $('caves'),
   lodtint: $('lodtint'), flash: $('flash'), textures: $('textures'), refresh: $('refresh'), tip: $('tip'),
+  rails: $('rails'),
   name: $('world-name'),
 };
 
@@ -114,6 +116,43 @@ async function loadAssets() {
 }
 
 const terminals = new Terminals(scene, camera, renderer);
+const rails = new Rails(scene, camera);
+ui.rails?.addEventListener('change', () => {
+  rails.setVisible(ui.rails.checked);
+  if (ui.rails.checked) rails.refresh();
+  else updateRailLabels();
+});
+let lastRailPoll = 0;
+const railLabels = new Map();
+
+/** Station and train names, positioned like the terminal labels. */
+function updateRailLabels() {
+  const host = document.getElementById('map-labels');
+  const targets = rails.labelTargets();
+  const live = new Set();
+  const w = innerWidth / 2, h = innerHeight / 2;
+  for (const t of targets) {
+    live.add(t.key);
+    let el = railLabels.get(t.key);
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'map-label ' + t.kind;
+      host.appendChild(el);
+      railLabels.set(t.key, el);
+    }
+    if (el.textContent !== t.text) el.textContent = t.text;
+    const v = new THREE.Vector3(t.x, t.y, t.z).project(camera);
+    const visible = v.z < 1;
+    el.style.display = visible ? 'block' : 'none';
+    if (visible) {
+      el.style.left = `${(v.x * w) + w}px`;
+      el.style.top = `${(-v.y * h) + h}px`;
+    }
+  }
+  for (const [key, el] of railLabels) {
+    if (!live.has(key)) { el.remove(); railLabels.delete(key); }
+  }
+}
 
 // ---------- world state ----------
 let world = null;          // /api/world JSON (palette, names, biomes, start, ...)
@@ -410,6 +449,7 @@ async function loadWorld(first) {
   lastChange = world.lastChange ? world.lastChange * 1000 : null;
   terminals.refresh();
   terminals.refreshDispatch();
+  rails.refresh();
   selectionDirty = true;
 }
 
@@ -562,6 +602,7 @@ function animate() {
   updateFlashes(now);
   renderer.render(scene, camera);
   terminals.updateLabels();
+  updateRailLabels();
   if (mouseDirty && now - lastPick > 60) { lastPick = now; pick(); }
   frames++;
   if (now - fpsTime > 500) {
@@ -571,6 +612,8 @@ function animate() {
       terminals.refresh();
       terminals.refreshDispatch();
     }
+    // Trains move continuously, so the railway is polled on its own quicker timer.
+    if (now - lastRailPoll > 1000) { lastRailPoll = now; rails.refresh(); }
   }
 }
 

@@ -76,6 +76,8 @@
     background: rgba(18,20,26,0.85); border: 1px solid var(--line); border-radius: 6px; padding: 2px 7px;
     font-size: 11px; white-space: nowrap; color: var(--text); }
   .map-label:hover { border-color: var(--accent); }
+  .map-label.station { color: #9ec9f0; border-color: rgba(111,168,220,0.4); pointer-events: none; }
+  .map-label.train { color: #b6f0c6; border-color: rgba(76,209,122,0.4); pointer-events: none; font-size: 10px; }
   #tip .name { font-weight: 600; }
   #tip .ns { color: var(--muted); font-weight: 400; }
   #tip .meta { color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -91,6 +93,7 @@
   <div class="row"><label for="caves">Show caves</label><input id="caves" type="checkbox"></div>
   <div class="row"><label for="lodtint">Colour by LOD level</label><input id="lodtint" type="checkbox"></div>
   <div class="row"><label for="flash">Highlight live updates</label><input id="flash" type="checkbox" checked></div>
+  <div class="row"><label for="rails">Show railway</label><input id="rails" type="checkbox" checked></div>
   <button id="refresh">Full re-sync from game</button>
   <div class="stats" id="stats"></div>
 </div>
