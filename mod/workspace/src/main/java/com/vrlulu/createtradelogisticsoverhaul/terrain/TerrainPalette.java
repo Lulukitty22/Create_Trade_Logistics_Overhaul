@@ -146,15 +146,10 @@ public class TerrainPalette {
     /** Grass, foliage and water colours for the biome the voxel is actually in. */
     private static int[] tintFor(BlockState state, Mapper mapper, int biomeId) {
         int packed = 0xFFFFFF;
-        // Spruce and birch leaves ignore the biome and use a fixed colour, exactly as the game's own
-        // BlockColors table does. Without this they take the biome's foliage colour, and a pack like
-        // Terralith - whose forested_highlands declares a red foliage colour - turns pine forests red.
-        if (state.getBlock() == net.minecraft.world.level.block.Blocks.SPRUCE_LEAVES) {
-            return unpack(net.minecraft.world.level.FoliageColor.getEvergreenColor());
-        }
-        if (state.getBlock() == net.minecraft.world.level.block.Blocks.BIRCH_LEAVES) {
-            return unpack(net.minecraft.world.level.FoliageColor.getBirchColor());
-        }
+        // Leaves take the biome's foliage colour, including modded ones: Terralith's
+        // forested_highlands really does declare a red foliage colour, and the game really does
+        // draw red pines there. The map only differs in that it uses one colour per biome, so it
+        // misses the per-block blending that softens the edges in game.
         try {
             Biome biome = Minecraft.getInstance().level.registryAccess()
                     .registryOrThrow(Registries.BIOME)

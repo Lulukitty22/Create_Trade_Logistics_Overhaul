@@ -58,9 +58,16 @@ public class LogisticsTerminalBlock extends HorizontalDirectionalBlock implement
 
     @Override
     public void setPlacedBy(Level level, BlockPos pos, BlockState state, @Nullable LivingEntity placer, ItemStack stack) {
-        if (!level.isClientSide && placer instanceof Player player
-                && level.getBlockEntity(pos) instanceof LogisticsTerminalBlockEntity terminal) {
+        if (level.isClientSide || !(level.getBlockEntity(pos) instanceof LogisticsTerminalBlockEntity terminal)) {
+            return;
+        }
+        if (placer instanceof Player player) {
             terminal.setOwner(player);
+        }
+        // Placed from a stack that was already tuned (the Redstone Requester works the same way):
+        // carry that network over, so no second step is needed.
+        if (LogisticallyLinkedBlockItem.isTuned(stack)) {
+            terminal.tuneTo(LogisticallyLinkedBlockItem.networkFromStack(stack));
         }
     }
 
@@ -81,21 +88,21 @@ public class LogisticsTerminalBlock extends HorizontalDirectionalBlock implement
         return ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION;
     }
 
+    /** Empty hand: open the terminal's window. */
     @Override
     protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player,
                                                BlockHitResult hit) {
-        if (level.isClientSide || !(level.getBlockEntity(pos) instanceof LogisticsTerminalBlockEntity terminal)) {
-            return InteractionResult.sidedSuccess(level.isClientSide);
+        if (!(level.getBlockEntity(pos) instanceof LogisticsTerminalBlockEntity terminal)) {
+            return InteractionResult.PASS;
         }
-        if (!terminal.isTuned()) {
-            player.displayClientMessage(Component.literal(
-                    "Not connected yet - right-click with a tuned Stock Link"), false);
+        if (!level.isClientSide) {
             return InteractionResult.SUCCESS;
         }
-        int kinds = terminal.stock().size();
-        player.displayClientMessage(Component.literal(
-                terminal.terminalName() + (terminal.address().isBlank() ? "" : " (" + terminal.address() + ")")
-                        + ": " + kinds + " item types in stock"), false);
+        if (!terminal.accessFor(player).atLeast(TerminalSettings.Access.VIEW)) {
+            player.displayClientMessage(Component.literal("You may not use this terminal"), true);
+            return InteractionResult.SUCCESS;
+        }
+        com.vrlulu.createtradelogisticsoverhaul.client.TerminalScreenOpener.open(pos);
         return InteractionResult.SUCCESS;
     }
 

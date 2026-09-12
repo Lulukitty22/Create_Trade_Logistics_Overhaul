@@ -33,7 +33,13 @@ import java.util.Map;
  * resource packs, modded blocks and custom model loaders all come out right.
  */
 public class BlockAssets {
-    public static final int TEX = 16;
+    /**
+     * Every layer of the texture array is this size, because an array texture demands one size for
+     * all of them. 32 rather than 16: Create draws from 32x32 sheets and its models take a corner
+     * of one per face, so at 16 a station's top face was left with about 8x8 real pixels. The whole
+     * array is still under 2MB.
+     */
+    public static final int TEX = 32;
     private static final RandomSource RANDOM = RandomSource.create(42L);
     private static final int STRIDE = 8;   // ints per vertex in DefaultVertexFormat.BLOCK
     private static final Direction[] DIRS = {

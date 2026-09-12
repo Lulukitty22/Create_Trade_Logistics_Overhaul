@@ -3,7 +3,7 @@ package com.vrlulu.createtradelogisticsoverhaul.logistics;
 import com.vrlulu.createtradelogisticsoverhaul.CreateTradeLogisticsOverhaul;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.item.BlockItem;
+import com.simibubi.create.content.logistics.packagerLink.LogisticallyLinkedBlockItem;
 import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.CreativeModeTabs;
 import net.minecraft.world.item.Item;
@@ -35,8 +35,14 @@ public final class ModContent {
                     .requiresCorrectToolForDrops()
                     .sound(SoundType.COPPER)));
 
+    /**
+     * Create's own linked block item, the same one the Redstone Requester and Stock Ticker use.
+     * Holding the terminal and right-clicking any logistically linked block tunes it to that
+     * network, with Create's message, flashing outline and enchant glint - rather than a mechanic
+     * of our own that players would have to learn separately.
+     */
     public static final Supplier<Item> TERMINAL_ITEM = ITEMS.register("logistics_terminal",
-            () -> new BlockItem(TERMINAL.get(), new Item.Properties()));
+            () -> new LogisticallyLinkedBlockItem(TERMINAL.get(), new Item.Properties()));
 
     public static final Supplier<BlockEntityType<LogisticsTerminalBlockEntity>> TERMINAL_BE =
             BLOCK_ENTITIES.register("logistics_terminal", () -> BlockEntityType.Builder

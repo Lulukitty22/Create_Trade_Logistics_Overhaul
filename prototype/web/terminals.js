@@ -118,11 +118,14 @@ export class Terminals {
     this.markers.clear();
     for (const el of this.labels.values()) el.remove();
     this.labels.clear();
-    const geo = new THREE.BoxGeometry(1.4, 1.4, 1.4);
-    const mat = new THREE.MeshBasicMaterial({ color: MARKER_COLOR, depthTest: false, transparent: true, opacity: 0.9 });
+    // An outline around the block itself, not a solid cube floating over it: the terminal is
+    // already drawn by the terrain with its own texture, so covering it up hid the thing we're
+    // pointing at.
+    const geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.02, 1.02, 1.02));
+    const mat = new THREE.LineBasicMaterial({ color: MARKER_COLOR, depthTest: false, transparent: true, opacity: 0.95 });
     for (const t of this.list) {
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(t.x + 0.5, t.y + 1.6, t.z + 0.5);
+      const mesh = new THREE.LineSegments(geo, mat);
+      mesh.position.set(t.x + 0.5, t.y + 0.5, t.z + 0.5);
       mesh.renderOrder = 999;
       this.markers.add(mesh);
       const label = document.createElement('div');
@@ -142,7 +145,7 @@ export class Terminals {
     for (const t of this.list) {
       const el = this.labels.get(key(t));
       if (!el) continue;
-      this.tmp.set(t.x + 0.5, t.y + 2.6, t.z + 0.5).project(this.camera);
+      this.tmp.set(t.x + 0.5, t.y + 1.2, t.z + 0.5).project(this.camera);
       const visible = this.tmp.z < 1;
       el.style.display = visible ? 'block' : 'none';
       if (visible) {

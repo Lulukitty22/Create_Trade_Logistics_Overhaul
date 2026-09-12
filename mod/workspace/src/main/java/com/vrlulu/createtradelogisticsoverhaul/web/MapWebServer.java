@@ -47,6 +47,11 @@ public class MapWebServer {
         return port;
     }
 
+    /** True once at least one listener is bound. */
+    public boolean isRunning() {
+        return port > 0 && !servers.isEmpty();
+    }
+
     public void start() {
         // Bind IPv4 loopback explicitly: getLoopbackAddress() prefers ::1 on dual-stack Windows,
         // which leaves http://127.0.0.1:<port>/ unreachable.
