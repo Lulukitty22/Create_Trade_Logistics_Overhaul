@@ -2,6 +2,7 @@ package com.vrlulu.createtradelogisticsoverhaul.dispatch;
 
 import com.simibubi.create.Create;
 import com.simibubi.create.content.logistics.box.PackageItem;
+import com.simibubi.create.content.logistics.packagePort.postbox.PostboxBlockEntity;
 import com.simibubi.create.content.trains.entity.Train;
 import com.simibubi.create.content.trains.graph.EdgePointType;
 import com.simibubi.create.content.trains.graph.TrackGraph;
@@ -57,15 +58,30 @@ public final class Dispatcher {
         }
     }
 
-    /** Every package currently sitting in a station's postbox, loaded chunks or not. */
-    public static List<Waiting> waitingPackages() {
+    /**
+     * Every package currently sitting in a station's postbox.
+     *
+     * <p>Read the way Create's own fetch instruction reads it: a postbox in a loaded chunk keeps its
+     * packages in the block entity, and {@code offlineBuffer} only holds them while the chunk is
+     * unloaded. Reading the buffer alone meant the dispatcher went blind whenever anyone was
+     * standing near the station - which is most of the time someone is testing it.
+     */
+    public static List<Waiting> waitingPackages(net.minecraft.server.MinecraftServer server) {
         List<Waiting> out = new ArrayList<>();
         for (TrackGraph graph : Create.RAILWAYS.trackNetworks.values()) {
             for (GlobalStation station : graph.getPoints(EdgePointType.STATION)) {
+                net.minecraft.server.level.ServerLevel level =
+                        server == null ? null : server.getLevel(station.blockEntityDimension);
                 for (Map.Entry<BlockPos, GlobalPackagePort> entry : station.connectedPorts.entrySet()) {
                     GlobalPackagePort port = entry.getValue();
+                    BlockPos pos = entry.getKey();
+                    net.neoforged.neoforge.items.IItemHandlerModifiable inventory = port.offlineBuffer;
+                    if (level != null && level.isLoaded(pos)
+                            && level.getBlockEntity(pos) instanceof PostboxBlockEntity postbox) {
+                        inventory = postbox.inventory;
+                    }
                     Map<String, Integer> byAddress = new LinkedHashMap<>();
-                    countPackages(port.offlineBuffer, byAddress);
+                    countPackages(inventory, byAddress);
                     byAddress.forEach((address, count) -> out.add(new Waiting(station.name, address, count)));
                 }
             }
@@ -73,7 +89,8 @@ public final class Dispatcher {
         return out;
     }
 
-    private static void countPackages(ItemStackHandler inventory, Map<String, Integer> byAddress) {
+    private static void countPackages(net.neoforged.neoforge.items.IItemHandlerModifiable inventory,
+                                      Map<String, Integer> byAddress) {
         if (inventory == null) {
             return;
         }
@@ -104,7 +121,7 @@ public final class Dispatcher {
      */
     public static List<Plan> plan(net.minecraft.server.MinecraftServer server) {
         List<Plan> plans = new ArrayList<>();
-        for (Waiting waiting : waitingPackages()) {
+        for (Waiting waiting : waitingPackages(server)) {
             GlobalStation pickup = stationNamed(waiting.atStation());
             GlobalStation drop = stationServing(waiting.toAddress());
             if (pickup == null) {
@@ -154,6 +171,32 @@ public final class Dispatcher {
                     waiting.toAddress(), waiting.count(), stops, null));
         }
         return plans;
+    }
+
+    /** One station as the diagnostics see it. */
+    public record StationInfo(String name, String graph, boolean hasReversePoint,
+                              List<String> portAddresses, int packagesWaiting) {
+    }
+
+    /** Every station Create knows about, for working out why a run is planned the way it is. */
+    public static List<StationInfo> stations(net.minecraft.server.MinecraftServer server) {
+        Map<String, Integer> waitingByStation = new LinkedHashMap<>();
+        for (Waiting waiting : waitingPackages(server)) {
+            waitingByStation.merge(waiting.atStation(), waiting.count(), Integer::sum);
+        }
+        List<StationInfo> out = new ArrayList<>();
+        for (TrackGraph graph : Create.RAILWAYS.trackNetworks.values()) {
+            for (GlobalStation station : graph.getPoints(EdgePointType.STATION)) {
+                List<String> addresses = new ArrayList<>();
+                for (GlobalPackagePort port : station.connectedPorts.values()) {
+                    addresses.add(port.address == null ? "" : port.address);
+                }
+                out.add(new StationInfo(station.name, graph.id.toString().substring(0, 8),
+                        stationNamed(station.name + REVERSE_SUFFIX) != null, addresses,
+                        waitingByStation.getOrDefault(station.name, 0)));
+            }
+        }
+        return out;
     }
 
     /** The stop list for a run, with reverse points inserted where they exist. */

@@ -12,6 +12,11 @@ public final class DispatchJson {
     }
 
     public static String toJson(List<Dispatcher.Plan> plans, boolean mayDispatch) {
+        return toJson(plans, mayDispatch, List.of());
+    }
+
+    public static String toJson(List<Dispatcher.Plan> plans, boolean mayDispatch,
+                                List<Dispatcher.StationInfo> stations) {
         JsonObject root = new JsonObject();
         root.addProperty("mayDispatch", mayDispatch);
         JsonArray runs = new JsonArray();
@@ -36,9 +41,26 @@ public final class DispatchJson {
             }
         }
         root.add("runs", runs);
+        root.add("stations", stationsJson(stations));
         root.addProperty("waitingPackages", packages);
         root.addProperty("readyRuns", possible);
         root.addProperty("blockedRuns", plans.size() - possible);
         return root.toString();
+    }
+
+    private static JsonArray stationsJson(List<Dispatcher.StationInfo> stations) {
+        JsonArray array = new JsonArray();
+        for (Dispatcher.StationInfo station : stations) {
+            JsonObject entry = new JsonObject();
+            entry.addProperty("name", station.name());
+            entry.addProperty("graph", station.graph());
+            entry.addProperty("hasReversePoint", station.hasReversePoint());
+            entry.addProperty("packagesWaiting", station.packagesWaiting());
+            JsonArray addresses = new JsonArray();
+            station.portAddresses().forEach(addresses::add);
+            entry.add("portAddresses", addresses);
+            array.add(entry);
+        }
+        return array;
     }
 }

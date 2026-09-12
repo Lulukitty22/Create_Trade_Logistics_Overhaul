@@ -29,7 +29,7 @@ public final class DispatchCommand {
                 .requires(source -> source.hasPermission(2));
 
         root.then(Commands.literal("packages").executes(context -> {
-            List<Dispatcher.Waiting> waiting = Dispatcher.waitingPackages();
+            List<Dispatcher.Waiting> waiting = Dispatcher.waitingPackages(context.getSource().getServer());
             CommandSourceStack source = context.getSource();
             if (waiting.isEmpty()) {
                 source.sendSuccess(() -> Component.literal("No packages waiting at any station postbox"), false);

@@ -89,7 +89,7 @@ public final class DispatchService {
 
     /** Sends trains for any waiting group whose origin terminal says it's time. */
     private static void dispatchReady(MinecraftServer server) {
-        List<Dispatcher.Waiting> waiting = Dispatcher.waitingPackages();
+        List<Dispatcher.Waiting> waiting = Dispatcher.waitingPackages(server);
         long now = System.currentTimeMillis();
         Map<String, Dispatcher.Waiting> current = new HashMap<>();
         for (Dispatcher.Waiting w : waiting) {
@@ -111,7 +111,7 @@ public final class DispatchService {
             if (!batchReady && !deadlineHit) {
                 continue;
             }
-            for (Dispatcher.Plan plan : Dispatcher.plan()) {
+            for (Dispatcher.Plan plan : Dispatcher.plan(server)) {
                 if (!plan.isPossible() || !plan.pickupStation().equals(w.atStation())
                         || !plan.address().equals(w.toAddress())) {
                     continue;

@@ -181,7 +181,9 @@ public final class Network {
             }
             context.reply(new Payloads.DispatchStatus(
                     com.vrlulu.createtradelogisticsoverhaul.dispatch.DispatchService.enabled(),
-                    DispatchJson.toJson(plans, mayRun)));
+                    DispatchJson.toJson(plans, mayRun,
+                            com.vrlulu.createtradelogisticsoverhaul.dispatch.Dispatcher
+                                    .stations(player.getServer()))));
         });
     }
 
