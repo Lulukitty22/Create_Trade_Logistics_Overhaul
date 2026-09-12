@@ -199,16 +199,45 @@ public final class Dispatcher {
         return out;
     }
 
+    /**
+     * The reverse point a station has to be entered through, or null if it can be entered directly.
+     *
+     * <p>Named after the <em>address</em> first - that is the convention in use: a building's
+     * station may be called anything, while its reverse point is named after the address it serves.
+     * Falls back to the station's own name for layouts that pair them that way instead.
+     */
+    private static GlobalStation reversePointFor(GlobalStation station, String address) {
+        if (address != null && !address.isBlank()) {
+            GlobalStation byAddress = stationNamed(address + REVERSE_SUFFIX);
+            if (byAddress != null) {
+                return byAddress;
+            }
+        }
+        return stationNamed(station.name + REVERSE_SUFFIX);
+    }
+
+    /** The address a station's postbox answers to, if it has one. */
+    private static String addressOf(GlobalStation station) {
+        for (GlobalPackagePort port : station.connectedPorts.values()) {
+            if (port.address != null && !port.address.isBlank()) {
+                return port.address;
+            }
+        }
+        return null;
+    }
+
     /** The stop list for a run, with reverse points inserted where they exist. */
     private static List<String> stopsFor(GlobalStation pickup, GlobalStation drop, String address) {
         List<String> stops = new ArrayList<>();
-        if (stationNamed(pickup.name + REVERSE_SUFFIX) != null) {
-            stops.add(pickup.name + REVERSE_SUFFIX);
+        GlobalStation pickupReverse = reversePointFor(pickup, addressOf(pickup));
+        if (pickupReverse != null) {
+            stops.add(pickupReverse.name);
         }
         stops.add(pickup.name);
         stops.add("fetch packages " + address);
-        if (stationNamed(drop.name + REVERSE_SUFFIX) != null) {
-            stops.add(drop.name + REVERSE_SUFFIX);
+        GlobalStation dropReverse = reversePointFor(drop, address);
+        if (dropReverse != null) {
+            stops.add(dropReverse.name);
         }
         stops.add(drop.name);
         stops.add("deliver packages");
@@ -235,15 +264,15 @@ public final class Dispatcher {
         // themselves - any station holding a matching package - so on their own they undo the point
         // of dispatching: the train would go wherever Create fancied rather than where it was sent.
         // This also makes the schedule match the plan the map showed, stop for stop.
-        if (stationNamed(pickup.name + REVERSE_SUFFIX) != null) {
-            schedule.entries.add(entry(destination(pickup.name + REVERSE_SUFFIX, registries),
-                    delay(registries, 1)));
+        GlobalStation pickupReverse = reversePointFor(pickup, addressOf(pickup));
+        if (pickupReverse != null) {
+            schedule.entries.add(entry(destination(pickupReverse.name, registries), delay(registries, 1)));
         }
         schedule.entries.add(entry(destination(pickup.name, registries), cargoIdle(registries, 3)));
         schedule.entries.add(entry(fetchPackages(plan.address(), registries), cargoIdle(registries, 3)));
-        if (stationNamed(drop.name + REVERSE_SUFFIX) != null) {
-            schedule.entries.add(entry(destination(drop.name + REVERSE_SUFFIX, registries),
-                    delay(registries, 1)));
+        GlobalStation dropReverse = reversePointFor(drop, plan.address());
+        if (dropReverse != null) {
+            schedule.entries.add(entry(destination(dropReverse.name, registries), delay(registries, 1)));
         }
         schedule.entries.add(entry(destination(drop.name, registries), cargoIdle(registries, 3)));
         schedule.entries.add(entry(deliverPackages(), cargoIdle(registries, 3)));
