@@ -15,6 +15,7 @@ import net.minecraft.world.level.block.LeavesBlock;
 import net.minecraft.world.level.block.LiquidBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.FluidState;
+import net.neoforged.neoforge.client.extensions.common.IClientFluidTypeExtensions;
 import net.minecraft.world.phys.AABB;
 import net.neoforged.neoforge.client.model.data.ModelData;
 
@@ -34,6 +35,7 @@ import java.util.Map;
 public class BlockAssets {
     public static final int TEX = 16;
     private static final RandomSource RANDOM = RandomSource.create(42L);
+    private static final int STRIDE = 8;   // ints per vertex in DefaultVertexFormat.BLOCK
     private static final Direction[] DIRS = {
             Direction.EAST, Direction.WEST, Direction.UP, Direction.DOWN, Direction.SOUTH, Direction.NORTH};
 
@@ -142,7 +144,7 @@ public class BlockAssets {
         FluidState fluid = state.getFluidState();
         if (state.getBlock() instanceof LiquidBlock && !fluid.isEmpty()) {
             boolean water = fluid.is(net.minecraft.tags.FluidTags.WATER);
-            int layer = layerFor(spriteOf(state, Direction.UP), true);
+            int layer = layerForFluid(fluid);
             int[] faces = new int[6];
             java.util.Arrays.fill(faces, layer);
             return new BlockInfo(water ? TerrainPalette.KIND_WATER : TerrainPalette.KIND_SOLID,
@@ -177,6 +179,9 @@ public class BlockAssets {
             // and as cubes at coarse LODs when they fill enough of the block (as Voxy's LODs do).
             int model = bakeModel(state, leaves);
             boolean chunky = volumeFraction(state) >= 0.2;
+            if (tintMask == 0 && isTintedAnywhere(state)) {
+                tintMask = 0x3F;      // tinted, but only on quads with no cull face
+            }
             return new BlockInfo(TerrainPalette.KIND_MODEL, faces, tintMask, chunky, model, rot, waterlogged);
         }
         int kind = leaves || state.canOcclude() ? TerrainPalette.KIND_SOLID : TerrainPalette.KIND_GLASS;
@@ -307,12 +312,56 @@ public class BlockAssets {
         };
     }
 
+    /**
+     * Whether the model really is a solid cube: every direction must have a quad covering its whole
+     * face. The block's outline shape can't be trusted here, because plants such as tall grass
+     * inherit the default full-block shape and would be drawn as cubes.
+     */
     private static boolean isFullCube(BlockState state) {
         try {
-            return Block.isShapeFullBlock(state.getShape(Minecraft.getInstance().level, BlockPos.ZERO));
+            BakedModel model = modelOf(state);
+            for (Direction dir : Direction.values()) {
+                boolean covered = false;
+                for (BakedQuad quad : model.getQuads(state, dir, RANDOM, ModelData.EMPTY, null)) {
+                    if (coversWholeFace(quad, dir)) {
+                        covered = true;
+                        break;
+                    }
+                }
+                if (!covered) {
+                    return false;
+                }
+            }
+            return true;
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    private static boolean coversWholeFace(BakedQuad quad, Direction dir) {
+        int[] v = quad.getVertices();
+        if (v.length < 4 * STRIDE) {
+            return false;
+        }
+        Direction.Axis axis = dir.getAxis();
+        float plane = dir.getAxisDirection() == Direction.AxisDirection.POSITIVE ? 1f : 0f;
+        float minA = 1, maxA = 0, minB = 1, maxB = 0;
+        for (int i = 0; i < 4; i++) {
+            float x = Float.intBitsToFloat(v[i * STRIDE]);
+            float y = Float.intBitsToFloat(v[i * STRIDE + 1]);
+            float z = Float.intBitsToFloat(v[i * STRIDE + 2]);
+            float onPlane = axis == Direction.Axis.X ? x : axis == Direction.Axis.Y ? y : z;
+            if (Math.abs(onPlane - plane) > 0.001f) {
+                return false;
+            }
+            float a = axis == Direction.Axis.X ? y : x;
+            float b = axis == Direction.Axis.Z ? y : z;
+            minA = Math.min(minA, a);
+            maxA = Math.max(maxA, a);
+            minB = Math.min(minB, b);
+            maxB = Math.max(maxB, b);
+        }
+        return minA < 0.001f && maxA > 0.999f && minB < 0.001f && maxB > 0.999f;
     }
 
     private static BakedModel modelOf(BlockState state) {
@@ -349,12 +398,69 @@ public class BlockAssets {
         return false;
     }
 
+    /**
+     * True if any quad of the model is tinted, including the ones with no cull direction. Cross
+     * models (grass, ferns, flowers) return everything that way, and without this they lost their
+     * biome colour and showed their greyscale texture raw.
+     */
+    private static boolean isTintedAnywhere(BlockState state) {
+        try {
+            BakedModel model = modelOf(state);
+            for (BakedQuad quad : model.getQuads(state, null, RANDOM, ModelData.EMPTY, null)) {
+                if (quad.isTinted()) {
+                    return true;
+                }
+            }
+            for (Direction dir : Direction.values()) {
+                for (BakedQuad quad : model.getQuads(state, dir, RANDOM, ModelData.EMPTY, null)) {
+                    if (quad.isTinted()) {
+                        return true;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+            // fall through
+        }
+        return false;
+    }
+
     private static TextureAtlasSprite particleOf(BlockState state) {
         try {
             return modelOf(state).getParticleIcon(ModelData.EMPTY);
         } catch (Throwable t) {
             return null;
         }
+    }
+
+    /**
+     * Fluids are drawn by their own renderer and have no baked quads, so their texture comes from
+     * the fluid type. Without this, water fell back to the missing-texture layer.
+     */
+    private int layerForFluid(FluidState fluid) {
+        try {
+            ResourceLocation still = IClientFluidTypeExtensions.of(fluid).getStillTexture();
+            if (still != null) {
+                return layerForTexture(still, true);
+            }
+        } catch (Throwable t) {
+            CreateTradeLogisticsOverhaul.LOG.debug("No fluid texture for {}", fluid, t);
+        }
+        return layerForTexture(ResourceLocation.withDefaultNamespace("block/water_still"), true);
+    }
+
+    /** Registers a texture by name (for sprites we can't reach through a baked quad). */
+    private synchronized int layerForTexture(ResourceLocation name, boolean fill) {
+        String key = name + (fill ? "#opaque" : "");
+        Integer existing = layerByKey.get(key);
+        if (existing != null) {
+            return existing;
+        }
+        byte[] pixels = readTexture(name, fill);
+        layers.add(pixels);
+        layerAverages.add(averageOf(pixels));
+        int index = layers.size() - 1;
+        layerByKey.put(key, index);
+        return index;
     }
 
     /** Registers a sprite's pixels as a texture-array layer. fill=true makes holes opaque (leaves). */
