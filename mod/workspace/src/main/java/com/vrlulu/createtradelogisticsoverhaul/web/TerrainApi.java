@@ -20,16 +20,10 @@ import java.util.List;
  * block models aren't served yet: the page falls back to flat colours when "textures" is false.
  */
 public class TerrainApi {
-    private static final long INDEX_INTERVAL_MS = 60_000;   // a full key scan; cheap enough once a minute
-
     private final TerrainStore store = new TerrainStore();
 
     private WorldEngine engineOrNull() {
-        WorldEngine engine = VoxyBridge.engine();
-        if (engine != null) {
-            store.refreshIndex(engine, INDEX_INTERVAL_MS);
-        }
-        return engine;
+        return VoxyBridge.engine();
     }
 
     public void world(HttpExchange ex) throws IOException {
@@ -70,7 +64,9 @@ public class TerrainApi {
             Http.json(ex, 503, "{\"error\":\"no world\"}");
             return;
         }
-        List<int[]> roots = store.sectionsAt(store.maxLod());
+        Minecraft mc = Minecraft.getInstance();
+        Vec3 at = mc.player != null ? mc.player.position() : Vec3.ZERO;
+        List<int[]> roots = store.roots(engine, at.x, at.z);
         ByteBuffer buf = ByteBuffer.allocate(8 + roots.size() * 12).order(ByteOrder.LITTLE_ENDIAN);
         buf.putInt(store.maxLod()).putInt(roots.size());
         for (int[] r : roots) {

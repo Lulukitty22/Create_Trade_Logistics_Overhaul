@@ -1,7 +1,6 @@
 package com.vrlulu.createtradelogisticsoverhaul.terrain;
 
 import it.unimi.dsi.fastutil.ints.IntArrayList;
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import me.cortex.voxy.common.world.WorldEngine;
 import me.cortex.voxy.common.world.WorldSection;
@@ -9,77 +8,93 @@ import me.cortex.voxy.common.world.other.Mapper;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Deque;
 import java.util.List;
 
 /**
  * Converts Voxy sections into the wire format the page meshes from: global palette ids, cave air
  * marked, palette compressed. Mirrors the Python prototype's terrain_store (see DESIGN.md).
+ *
+ * <p>Nothing is scanned up front. The octree roots are found by flood-filling outwards from the
+ * section the player is in, which touches only the explored area and its border.
  */
 public class TerrainStore {
     private static final int VOXELS = 32 * 32 * 32;
     public static final int MISSING = 0xFFFF;
+    /** A world is at most ~24 sections tall at LOD 0 (-64..320 plus headroom). */
+    private static final int MAX_SECTION_Y = 24;
+    private static final int MIN_SECTION_Y = -8;
+    private static final long ROOTS_TTL_MS = 10_000;
 
     private final TerrainPalette palette = new TerrainPalette();
-    private final LongOpenHashSet index = new LongOpenHashSet();
-    private final Long2ObjectOpenHashMap<int[]> columnYs = new Long2ObjectOpenHashMap<>();
-    private long indexedAt;
-    private int maxLod;
+    private List<int[]> cachedRoots = List.of();
+    private long rootsAt;
+    private int rootsSeedX, rootsSeedZ;
 
     public TerrainPalette palette() {
         return palette;
     }
 
     public int maxLod() {
-        return maxLod;
+        return WorldEngine.MAX_LOD_LAYER;
     }
 
-    public synchronized int sectionCount() {
-        return index.size();
+    /**
+     * Every top-level section reachable from the one the player stands in, found by flood fill.
+     * Cached briefly, and recomputed when the player moves to a different root.
+     */
+    public synchronized List<int[]> roots(WorldEngine engine, double px, double pz) {
+        int lod = maxLod(), size = 32 << lod;
+        int seedX = Math.floorDiv((int) Math.floor(px), size);
+        int seedZ = Math.floorDiv((int) Math.floor(pz), size);
+        boolean stale = System.currentTimeMillis() - rootsAt > ROOTS_TTL_MS;
+        if (!stale && seedX == rootsSeedX && seedZ == rootsSeedZ && !cachedRoots.isEmpty()) {
+            return cachedRoots;
+        }
+        List<int[]> found = floodFill(engine, lod, seedX, seedZ);
+        cachedRoots = found;
+        rootsAt = System.currentTimeMillis();
+        rootsSeedX = seedX;
+        rootsSeedZ = seedZ;
+        return found;
     }
 
-    /** Rebuilds the section index (keys only, so it stays cheap), at most every minIntervalMs. */
-    public void refreshIndex(WorldEngine engine, long minIntervalMs) {
-        synchronized (this) {
-            if (System.currentTimeMillis() - indexedAt < minIntervalMs) {
-                return;
-            }
-        }
-        LongOpenHashSet found = new LongOpenHashSet();
-        if (!VoxyBridge.forEachStoredSection(engine, found::add)) {
-            return;
-        }
-        Long2ObjectOpenHashMap<IntArrayList> columns = new Long2ObjectOpenHashMap<>();
-        int top = 0;
-        for (long key : found) {
-            int lod = WorldEngine.getLevel(key);
-            top = Math.max(top, lod);
-            long column = columnKey(lod, WorldEngine.getX(key), WorldEngine.getZ(key));
-            columns.computeIfAbsent(column, k -> new IntArrayList()).add(WorldEngine.getY(key));
-        }
-        synchronized (this) {
-            index.clear();
-            index.addAll(found);
-            columnYs.clear();
-            columns.forEach((k, v) -> columnYs.put(k.longValue(), v.toIntArray()));
-            maxLod = top;
-            indexedAt = System.currentTimeMillis();
-        }
-    }
-
-    private static long columnKey(int lod, int x, int z) {
-        return ((long) lod << 56) | ((long) (x & 0xFFFFFF) << 28) | (z & 0xFFFFFFL);
-    }
-
-    public synchronized List<int[]> sectionsAt(int lod) {
+    private List<int[]> floodFill(WorldEngine engine, int lod, int seedX, int seedZ) {
         List<int[]> out = new ArrayList<>();
-        for (long key : index) {
-            if (WorldEngine.getLevel(key) == lod) {
-                out.add(new int[]{WorldEngine.getX(key), WorldEngine.getY(key), WorldEngine.getZ(key)});
+        LongOpenHashSet visitedColumns = new LongOpenHashSet();
+        Deque<long[]> queue = new ArrayDeque<>();
+        queue.add(new long[]{seedX, seedZ});
+        visitedColumns.add(columnKey(seedX, seedZ));
+        while (!queue.isEmpty() && out.size() < 20_000) {
+            long[] col = queue.poll();
+            int x = (int) col[0], z = (int) col[1];
+            boolean any = false;
+            for (int y = MIN_SECTION_Y >> lod; y <= MAX_SECTION_Y >> lod; y++) {
+                WorldSection s = engine.acquireIfExists(lod, x, y, z);
+                if (s != null) {
+                    s.release();
+                    out.add(new int[]{x, y, z});
+                    any = true;
+                }
+            }
+            if (!any) {
+                continue;                      // empty column: don't expand past it
+            }
+            for (int[] d : new int[][]{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
+                int nx = x + d[0], nz = z + d[1];
+                if (visitedColumns.add(columnKey(nx, nz))) {
+                    queue.add(new long[]{nx, nz});
+                }
             }
         }
         return out;
+    }
+
+    private static long columnKey(int x, int z) {
+        return ((long) x << 32) ^ (z & 0xFFFFFFFFL);
     }
 
     /** One section, encoded for the page; a "missing" record when Voxy has no such section. */
@@ -149,25 +164,21 @@ public class TerrainStore {
         return air > height * 1024 * 9 / 10;
     }
 
-    /** Columns of this section that have something drawn above them, in the sections higher up. */
+    /**
+     * Columns of this section with something drawn above them. Walks up section by section until
+     * the world top, stopping after a couple of empty ones (no global index needed).
+     */
     private boolean[] coverFromAbove(WorldEngine engine, int lod, int x, int y, int z) {
         boolean[] cover = new boolean[1024];
-        int[] ys;
-        synchronized (this) {
-            ys = columnYs.get(columnKey(lod, x, z));
-        }
-        if (ys == null) {
-            return cover;
-        }
         Mapper mapper = engine.getMapper();
-        for (int above : ys) {
-            if (above <= y) {
-                continue;
-            }
+        int misses = 0;
+        for (int above = y + 1; above <= (MAX_SECTION_Y >> lod) && misses < 3; above++) {
             WorldSection s = engine.acquireIfExists(lod, x, above, z);
             if (s == null) {
+                misses++;
                 continue;
             }
+            misses = 0;
             try {
                 long[] raw = s._unsafeGetRawDataArray();
                 for (int i = 0; i < VOXELS; i++) {
