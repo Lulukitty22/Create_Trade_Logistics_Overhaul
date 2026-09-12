@@ -561,10 +561,15 @@ Measured with `model_survey.py` against every block state Voxy has seen:
    Voxy's `markDirty`, the game's own textures and baked models.
 3. **Registry (working in game):** the Logistics Terminal block, permissions, stock and addresses on
    the map. Binding, the network glow and tooltips come from Create's own linked-block machinery.
-4. **Dispatcher v1 (working in game):** verified end to end on 2026-09-11 - ordered 4 Honeyed Apple
-   from Oranges to Apples, the package queued at the postbox, the map planned the run, the train was
-   dispatched, and the goods arrived in Apples' network. Reverse points are inserted where they
-   exist; this test layout has none.
+4. **Dispatcher v1 (working in game):** verified end to end on 2026-09-12 against a layout with no
+   direct link between the two stations, so each can only be entered through its reverse point.
+   Ordering five Honeyed Apple from Oranges produced a package at its postbox, automatic dispatch
+   picked it up unaided once a train came free, the train reversed in at both ends, and the goods
+   arrived in Apples' network. This is the round-robin problem the mod exists to fix, gone.
+
+   Also verified: goods already loaded onto a parked train are dispatched from where they sit, with
+   only the delivery leg - a postbox hands its packages to any train standing at the station, so
+   this is the normal state of a van at its own depot rather than an edge case.
 5. **Routing across graphs (written, untested in game):** interchange legs.
 6. **Supply rules and trade (written, untested in game):** standing orders, prices, Numismatics
    payments. Escrow until delivery still to do.

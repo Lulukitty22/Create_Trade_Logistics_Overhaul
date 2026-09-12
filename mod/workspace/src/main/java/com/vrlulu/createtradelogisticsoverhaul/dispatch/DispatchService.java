@@ -140,6 +140,13 @@ public final class DispatchService {
 
     /** Sends trains for any waiting group whose origin terminal says it's time. */
     private static void dispatchReady(MinecraftServer server) {
+        // Goods already loaded onto a parked train go at once: the batch and deadline settings are
+        // about how long to let packages pile up at a postbox, and these are long past that.
+        for (Dispatcher.Plan plan : Dispatcher.plan(server)) {
+            if (plan.alreadyAboard() && plan.isPossible()) {
+                Dispatcher.assign(plan, server.registryAccess());
+            }
+        }
         List<Dispatcher.Waiting> waiting = Dispatcher.waitingPackages(server);
         long now = System.currentTimeMillis();
         Map<String, Dispatcher.Waiting> current = new HashMap<>();
