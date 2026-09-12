@@ -356,7 +356,13 @@ mod/
 - **Identity:** mod id `createtradelogisticsoverhaul`, package `com.vrlulu.createtradelogisticsoverhaul`, version 0.1.0.
 - **Toolchain:** NeoForge 21.1.249 on Minecraft 1.21.1, ModDevGradle 2.0.147, Gradle 8.12, Java 21 (downloaded by Gradle; Gradle itself runs on the Java 17 already installed).
 - **Build:** `cd mod/workspace && ./gradlew build` → `mod/jars/`. `./gradlew runClient` starts a dev client.
-- **What exists so far:**
+- **What exists so far (2026-09-11):**
+  - **Terrain from Voxy, in-process.** `VoxyCommon.getInstance().getNullable(worldIdentifier)` gives the live `WorldEngine`; sections come from `acquireIfExists`. No copying, no file locks, always current.
+  - **Sections are found by flood fill** outwards from the player's section, so nothing scans the whole database.
+  - **Textures and tints from the game itself:** baked models give each face's sprite and tint flag, the resource manager gives the pixels. Resource packs, modded blocks and custom model loaders work with no special cases. Biome tints use the biome Voxy stored per voxel.
+  - **Live updates:** a mixin on Voxy's `WorldEngine.markDirty` records changed sections; `/api/events` streams their keys and the page re-fetches only those. Voxy's own dirty callback belongs to its renderer and is a single slot, so it must not be taken over.
+  - **Still missing:** non-cube block models (plants, slabs, stairs are classified but drawn as cubes or not at all), and everything Create-related.
+- **Earlier skeleton:**
   - `CreateTradeLogisticsOverhaul` — common entry point.
   - `client/ClientInit` — client-only; starts the web server at client setup.
   - `web/MapWebServer` — a loopback-only HTTP server (JDK built-in, no dependencies) serving the page from the jar, plus `/api/status`.
