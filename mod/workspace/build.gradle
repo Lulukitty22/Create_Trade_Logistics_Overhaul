@@ -37,6 +37,8 @@ if (file('local.properties').exists()) {
     file('local.properties').withInputStream { localProps.load(it) }
 }
 def voxyJar = localProps.getProperty('voxy_jar', '')
+// Optional: a modpack mods folder to drop built jars into (local.properties: mods_dir)
+def modsDir = localProps.getProperty('mods_dir', '')
 
 dependencies {
     if (voxyJar && file(voxyJar).exists()) {
@@ -64,4 +66,20 @@ tasks.named('jar', Jar).configure {
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
     options.release = 21
+}
+
+// Copies the built jar into the modpack, replacing the previous one. Close the game first:
+// Windows keeps the running game's jar locked.
+tasks.register('deployMod', Copy) {
+    dependsOn tasks.named('jar')
+    onlyIf {
+        if (!modsDir || !file(modsDir).isDirectory()) {
+            logger.lifecycle('deployMod: set mods_dir in local.properties to enable')
+            return false
+        }
+        return true
+    }
+    from tasks.named('jar')
+    into modsDir
+    doLast { logger.lifecycle("Deployed ${mod_id}-${mod_version}.jar to ${modsDir}") }
 }

@@ -1,3 +1,4 @@
 # Copy to local.properties and point at the Voxy jar from your modpack.
 # Only needed for compiling terrain code; Voxy itself is never shipped with this mod.
 voxy_jar=C:/path/to/mods/voxy-0.2.9-alpha.jar
+mods_dir=C:/path/to/ModrinthApp/profiles/<profile>/mods

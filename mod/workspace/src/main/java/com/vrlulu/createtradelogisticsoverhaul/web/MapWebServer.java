@@ -10,7 +10,10 @@ import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
 /**
@@ -27,40 +30,70 @@ public class MapWebServer {
             "css", "text/css; charset=utf-8", "json", "application/json", "png", "image/png",
             "svg", "image/svg+xml", "ico", "image/x-icon");
 
-    private final int port;
-    private HttpServer http;
+    private static final int PORT_ATTEMPTS = 10;
 
-    public MapWebServer(int port) {
-        this.port = port;
+    private final int basePort;
+    private final List<HttpServer> servers = new ArrayList<>();
+    private int port = -1;
+
+    public MapWebServer(int basePort) {
+        this.basePort = basePort;
+    }
+
+    /** The port the map is actually served on, or -1 if it isn't running. */
+    public int port() {
+        return port;
     }
 
     public void start() {
-        try {
-            http = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 0);
-            http.createContext("/", this::handleStatic);
-            http.createContext("/api/status", this::handleStatus);
-            http.setExecutor(Executors.newFixedThreadPool(4, r -> {
-                Thread t = new Thread(r, "clo-web");
-                t.setDaemon(true);
-                return t;
-            }));
-            http.start();
-            CreateTradeLogisticsOverhaul.LOG.info("Logistics map available at http://127.0.0.1:{}/", port);
-        } catch (IOException e) {
-            CreateTradeLogisticsOverhaul.LOG.error("Could not start the logistics map server on port {}", port, e);
+        // Bind IPv4 loopback explicitly: getLoopbackAddress() prefers ::1 on dual-stack Windows,
+        // which leaves http://127.0.0.1:<port>/ unreachable.
+        Executor pool = Executors.newFixedThreadPool(4, r -> {
+            Thread t = new Thread(r, "clo-web");
+            t.setDaemon(true);
+            return t;
+        });
+        for (int attempt = 0; attempt < PORT_ATTEMPTS && port < 0; attempt++) {
+            int candidate = basePort + attempt;
+            try {
+                servers.add(listen("127.0.0.1", candidate, pool));
+                port = candidate;
+            } catch (IOException e) {
+                CreateTradeLogisticsOverhaul.LOG.debug("Port {} unavailable ({})", candidate, e.toString());
+            }
         }
+        if (port < 0) {
+            CreateTradeLogisticsOverhaul.LOG.error("Could not start the logistics map server on ports {}-{}",
+                    basePort, basePort + PORT_ATTEMPTS - 1);
+            return;
+        }
+        try {   // also answer on the IPv6 loopback, so "localhost" works however it resolves
+            servers.add(listen("::1", port, pool));
+        } catch (IOException e) {
+            CreateTradeLogisticsOverhaul.LOG.debug("No IPv6 loopback listener: {}", e.toString());
+        }
+        CreateTradeLogisticsOverhaul.LOG.info("Logistics map available at http://127.0.0.1:{}/", port);
+    }
+
+    private HttpServer listen(String host, int port, Executor pool) throws IOException {
+        HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getByName(host), port), 0);
+        server.createContext("/", this::handleStatic);
+        server.createContext("/api/status", this::handleStatus);
+        server.setExecutor(pool);
+        server.start();
+        return server;
     }
 
     public void stop() {
-        if (http != null) {
-            http.stop(0);
-            http = null;
-        }
+        servers.forEach(s -> s.stop(0));
+        servers.clear();
+        port = -1;
     }
 
     private void handleStatus(HttpExchange ex) throws IOException {
         send(ex, 200, "application/json",
-                ("{\"mod\":\"" + CreateTradeLogisticsOverhaul.ID + "\",\"ok\":true}").getBytes(StandardCharsets.UTF_8));
+                ("{\"mod\":\"" + CreateTradeLogisticsOverhaul.ID + "\",\"ok\":true,\"port\":" + port + "}")
+                        .getBytes(StandardCharsets.UTF_8));
     }
 
     private void handleStatic(HttpExchange ex) throws IOException {
