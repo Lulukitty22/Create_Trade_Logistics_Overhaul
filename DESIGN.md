@@ -223,6 +223,20 @@ is dead code.
 `VirtualBlockEntity` - so Create's jar-in-jar libraries have to be unpacked onto the compile
 classpath. `build.gradle` does this automatically.
 
+## Measuring the mod's own cost
+
+`GET /api/perf` reports how long each piece of the mod's work takes and, in the name, which thread it
+happened on. That distinction is the point: work on the server or client thread delays the game,
+work on a web thread only delays the browser. `POST` to the same path resets the counters.
+
+It exists because a stutter got blamed on this mod twice on circumstantial timing. The numbers said
+otherwise - the whole mod accounted for about 0.19s of work across four and a half minutes - and the
+real cause turned out to be a Modrinth pack update resetting the instance's heap from 12GB to 6GB,
+which had a 169-mod pack full-GCing every twenty seconds. The game's own log said so plainly:
+`Can't keep up! Running 17160ms or 343 ticks behind` on the server thread.
+
+Reach for `/api/perf` and `logs/latest.log` before changing anything on a hunch.
+
 ## Local HTTP API (draft)
 
 The client mod and the Python stand-in both implement this. It'll be refined during the renderer experiments.
