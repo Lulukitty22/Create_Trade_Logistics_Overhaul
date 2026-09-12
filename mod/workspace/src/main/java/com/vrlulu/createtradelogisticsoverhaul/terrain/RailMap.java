@@ -44,10 +44,13 @@ public final class RailMap {
     private static final int CURVE_SAMPLES = 12;
     private static final int TRAIN_INTERVAL_TICKS = 10;      // twice a second
     private static final int LAYOUT_CHECK_TICKS = 20;        // once a second, and it is only a count
+    /** How long the railway must hold still before its shape is read again. */
+    private static final long REBUILD_COOLDOWN_MS = 60_000;
 
     private static volatile String layoutJson = "\"tracks\":[],\"stations\":[],\"links\":[]";
     private static volatile String trainsJson = "\"trains\":[]";
     private static String layoutSignature = "";
+    private static long rebuildAllowedAt;
     private static int ticks;
 
     private RailMap() {
@@ -67,14 +70,26 @@ public final class RailMap {
         ticks++;
         try {
             if (ticks % LAYOUT_CHECK_TICKS == 0) {
+                long signatureStart = System.nanoTime();
                 String signature = layoutSignature();
-                if (!signature.equals(layoutSignature)) {
+                com.vrlulu.createtradelogisticsoverhaul.web.Perf.record(
+                        "client:RailMap.signature", System.nanoTime() - signatureStart);
+                if (!signature.equals(layoutSignature) && System.currentTimeMillis() >= rebuildAllowedAt) {
                     layoutSignature = signature;
+                    // Building or tearing up track changes this many times in a row; rebuilding on
+                    // each one would stall the game repeatedly, so settle down before looking again.
+                    rebuildAllowedAt = System.currentTimeMillis() + REBUILD_COOLDOWN_MS;
+                    long layoutStart = System.nanoTime();
                     layoutJson = buildLayout(mc.level.dimension());
+                    com.vrlulu.createtradelogisticsoverhaul.web.Perf.record(
+                            "client:RailMap.buildLayout", System.nanoTime() - layoutStart);
                 }
             }
             if (ticks % TRAIN_INTERVAL_TICKS == 0) {
+                long trainStart = System.nanoTime();
                 trainsJson = buildTrains(mc.level.dimension());
+                com.vrlulu.createtradelogisticsoverhaul.web.Perf.record(
+                        "client:RailMap.buildTrains", System.nanoTime() - trainStart);
             }
         } catch (Throwable t) {
             CreateTradeLogisticsOverhaul.LOG.debug("Could not read the railway", t);

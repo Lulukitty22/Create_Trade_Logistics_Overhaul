@@ -235,6 +235,14 @@ public class TerrainApi {
                 + ",\"requested\":" + run + ",\"status\":" + ClientTerminals.dispatchJson() + "}");
     }
 
+    /** How long the mod's own work is taking, and on which thread. */
+    public void perf(HttpExchange ex) throws IOException {
+        if ("POST".equals(ex.getRequestMethod())) {
+            Perf.clear();
+        }
+        Http.json(ex, 200, Perf.toJson());
+    }
+
     /** Create's railway in this dimension: track, stations and where the trains are. */
     public void rails(HttpExchange ex) throws IOException {
         Http.json(ex, 200, com.vrlulu.createtradelogisticsoverhaul.terrain.RailMap.toJson());

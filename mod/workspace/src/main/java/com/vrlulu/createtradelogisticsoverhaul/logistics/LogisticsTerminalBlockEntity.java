@@ -111,8 +111,12 @@ public class LogisticsTerminalBlockEntity extends StockCheckingBlockEntity {
         if (network() == null) {
             return List.of();
         }
+        long startedAt = System.nanoTime();
         InventorySummary summary = getRecentSummary();
-        return summary == null ? List.of() : summary.getStacksByCount();
+        List<BigItemStack> stacks = summary == null ? List.of() : summary.getStacksByCount();
+        com.vrlulu.createtradelogisticsoverhaul.web.Perf.record(
+                "server:getSummaryOfNetwork", System.nanoTime() - startedAt);
+        return stacks;
     }
 
     public int countOf(ItemStack item) {

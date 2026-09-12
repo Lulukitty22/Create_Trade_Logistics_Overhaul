@@ -53,6 +53,7 @@ public final class Network {
             if (!(context.player() instanceof ServerPlayer player)) {
                 return;
             }
+            long startedAt = System.nanoTime();
             ServerLevel level = player.serverLevel();
             List<Payloads.TerminalInfo> out = new ArrayList<>();
             for (LogisticsTerminalBlockEntity terminal : TerminalRegistry.forLevel(level).loaded(level)) {
@@ -78,6 +79,8 @@ public final class Network {
                         TerminalJson.settingsToJson(terminal), access.name()));
             }
             context.reply(new Payloads.Terminals(out));
+            com.vrlulu.createtradelogisticsoverhaul.web.Perf.record(
+                    "server:onRequestTerminals", System.nanoTime() - startedAt);
         });
     }
 
@@ -163,9 +166,13 @@ public final class Network {
             if (!(context.player() instanceof ServerPlayer player)) {
                 return;
             }
+            long startedAt = System.nanoTime();
             boolean mayRun = player.hasPermissions(2);
+            long planStart = System.nanoTime();
             List<com.vrlulu.createtradelogisticsoverhaul.dispatch.Dispatcher.Plan> plans =
                     com.vrlulu.createtradelogisticsoverhaul.dispatch.Dispatcher.plan(player.getServer());
+            com.vrlulu.createtradelogisticsoverhaul.web.Perf.record(
+                    "server:Dispatcher.plan", System.nanoTime() - planStart);
             int sent = 0;
             if (payload.run() && mayRun) {
                 for (var plan : plans) {
@@ -179,11 +186,16 @@ public final class Network {
             } else if (payload.run()) {
                 context.reply(new Payloads.OrderResult(false, "You need operator rights to dispatch"));
             }
+            long stationsStart = System.nanoTime();
+            var stations = com.vrlulu.createtradelogisticsoverhaul.dispatch.Dispatcher
+                    .stations(player.getServer());
+            com.vrlulu.createtradelogisticsoverhaul.web.Perf.record(
+                    "server:Dispatcher.stations", System.nanoTime() - stationsStart);
             context.reply(new Payloads.DispatchStatus(
                     com.vrlulu.createtradelogisticsoverhaul.dispatch.DispatchService.enabled(),
-                    DispatchJson.toJson(plans, mayRun,
-                            com.vrlulu.createtradelogisticsoverhaul.dispatch.Dispatcher
-                                    .stations(player.getServer()))));
+                    DispatchJson.toJson(plans, mayRun, stations)));
+            com.vrlulu.createtradelogisticsoverhaul.web.Perf.record(
+                    "server:onRequestDispatch", System.nanoTime() - startedAt);
         });
     }
 

@@ -60,6 +60,11 @@ export class Terminals {
    * the runs it would set up, and the trains stay put until "Send all ready" is pressed.
    */
   async refreshDispatch(run = false) {
+    // Planning runs on the server thread, so asking costs the game a little time. The terminals
+    // event fires whenever any terminal changes, and each one used to bring a fresh plan with it.
+    const now = Date.now();
+    if (!run && now - (this.lastDispatchAt || 0) < 4000) return;
+    this.lastDispatchAt = now;
     try {
       const res = await fetch('/api/dispatch', run
         ? { method: 'POST', body: JSON.stringify({ run: true }) } : undefined);
