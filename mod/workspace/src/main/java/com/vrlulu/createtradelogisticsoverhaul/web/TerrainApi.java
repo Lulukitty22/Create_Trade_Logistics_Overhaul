@@ -1,6 +1,7 @@
 package com.vrlulu.createtradelogisticsoverhaul.web;
 
 import com.sun.net.httpserver.HttpExchange;
+import com.vrlulu.createtradelogisticsoverhaul.terrain.BlockAssets;
 import com.vrlulu.createtradelogisticsoverhaul.terrain.TerrainStore;
 import com.vrlulu.createtradelogisticsoverhaul.terrain.VoxyBridge;
 import me.cortex.voxy.common.world.WorldEngine;
@@ -38,13 +39,14 @@ public class TerrainApi {
         Vec3 at = mc.player != null ? mc.player.position() : Vec3.ZERO;
         StringBuilder out = new StringBuilder(1 << 16);
         out.append("{\"name\":\"").append(worldName(mc)).append('"')
-                .append(",\"live\":false,\"textures\":false")
+                .append(",\"live\":false,\"textures\":true")
                 .append(",\"maxLod\":").append(store.maxLod())
                 .append(",\"snapshotTime\":").append(System.currentTimeMillis() / 1000)
                 .append(",\"lastChange\":null")
                 .append(",\"start\":{\"x\":").append(at.x).append(",\"y\":").append(at.y)
                 .append(",\"z\":").append(at.z).append('}')
-                .append(",\"textureCount\":1,\"modelCount\":0,\"waterLayer\":0,");
+                .append(",\"textureCount\":").append(store.palette().assets().layerCount())
+                .append(",\"modelCount\":0,\"waterLayer\":").append(store.palette().waterLayer()).append(',');
         store.palette().writeJson(out);
         out.append('}');
         Http.json(ex, 200, out.toString());
@@ -53,7 +55,8 @@ public class TerrainApi {
     public void palette(HttpExchange ex) throws IOException {
         StringBuilder out = new StringBuilder(1 << 16).append('{');
         store.palette().writeJson(out);
-        out.append(",\"textureCount\":1,\"modelCount\":0,\"waterLayer\":0}");
+        out.append(",\"textureCount\":").append(store.palette().assets().layerCount())
+                .append(",\"modelCount\":0,\"waterLayer\":").append(store.palette().waterLayer()).append('}');
         Http.json(ex, 200, out.toString());
     }
 
@@ -99,13 +102,12 @@ public class TerrainApi {
         Http.bytes(ex, 200, "application/octet-stream", out.array());
     }
 
-    /** A single grey layer, so the page's texture array is valid while textures are unimplemented. */
+    /** "VXA1", u32 layer count, u32 size, then RGBA pixels per layer. */
     public void textures(HttpExchange ex) throws IOException {
-        ByteBuffer buf = ByteBuffer.allocate(12 + 16 * 16 * 4).order(ByteOrder.LITTLE_ENDIAN);
-        buf.put("VXA1".getBytes(StandardCharsets.US_ASCII)).putInt(1).putInt(16);
-        for (int i = 0; i < 16 * 16; i++) {
-            buf.put((byte) 128).put((byte) 128).put((byte) 128).put((byte) 255);
-        }
+        byte[] pixels = store.palette().assets().atlasBytes();
+        int count = store.palette().assets().layerCount();
+        ByteBuffer buf = ByteBuffer.allocate(12 + pixels.length).order(ByteOrder.LITTLE_ENDIAN);
+        buf.put("VXA1".getBytes(StandardCharsets.US_ASCII)).putInt(count).putInt(BlockAssets.TEX).put(pixels);
         Http.bytes(ex, 200, "application/octet-stream", buf.array());
     }
 

@@ -110,7 +110,7 @@ public class TerrainStore {
             byte[] sky = new byte[VOXELS];
             for (int i = 0; i < VOXELS; i++) {
                 long v = raw[i];
-                gids[i] = palette.gidFor(mapper, Mapper.getBlockId(v));
+                gids[i] = palette.gidFor(mapper, Mapper.getBlockId(v), Mapper.getBiomeId(v));
                 sky[i] = (byte) (Mapper.getLightId(v) & 15);
             }
             markCaveAir(engine, lod, x, y, z, gids, sky);
@@ -182,7 +182,7 @@ public class TerrainStore {
             try {
                 long[] raw = s._unsafeGetRawDataArray();
                 for (int i = 0; i < VOXELS; i++) {
-                    if (!cover[i & 1023] && palette.drawn(palette.gidFor(mapper, Mapper.getBlockId(raw[i])))) {
+                    if (!cover[i & 1023] && palette.drawn(palette.gidFor(mapper, Mapper.getBlockId(raw[i]), Mapper.getBiomeId(raw[i])))) {
                         cover[i & 1023] = true;
                     }
                 }
