@@ -15,3 +15,8 @@ mod/tools/
 
 # Machine-specific paths
 mod/workspace/local.properties
+
+# scratch files from API probing
+mod/workspace/*.bin
+mod/workspace/*.json
+!mod/workspace/local.properties
