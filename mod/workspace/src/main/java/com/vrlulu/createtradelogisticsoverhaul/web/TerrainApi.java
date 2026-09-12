@@ -19,8 +19,8 @@ import java.util.List;
 /**
  * The terrain half of the local API, backed by Voxy's live data.
  *
- * <p>Same contract as the Python prototype (see DESIGN.md), so the page is identical. Textures and
- * block models aren't served yet: the page falls back to flat colours when "textures" is false.
+ * <p>Same contract as the Python prototype (see DESIGN.md), so the page is identical: terrain
+ * sections, the palette, a texture array, baked block models, and a live event stream.
  */
 public class TerrainApi {
     private final TerrainStore store = new TerrainStore();
@@ -48,7 +48,7 @@ public class TerrainApi {
                 .append(",\"start\":{\"x\":").append(at.x).append(",\"y\":").append(at.y)
                 .append(",\"z\":").append(at.z).append('}')
                 .append(",\"textureCount\":").append(store.palette().assets().layerCount())
-                .append(",\"modelCount\":0,\"waterLayer\":").append(store.palette().waterLayer()).append(',');
+                .append(",\"modelCount\":").append(store.palette().assets().modelCount()).append(",\"waterLayer\":").append(store.palette().waterLayer()).append(',');
         store.palette().writeJson(out);
         out.append('}');
         Http.json(ex, 200, out.toString());
@@ -58,7 +58,7 @@ public class TerrainApi {
         StringBuilder out = new StringBuilder(1 << 16).append('{');
         store.palette().writeJson(out);
         out.append(",\"textureCount\":").append(store.palette().assets().layerCount())
-                .append(",\"modelCount\":0,\"waterLayer\":").append(store.palette().waterLayer()).append('}');
+                .append(",\"modelCount\":").append(store.palette().assets().modelCount()).append(",\"waterLayer\":").append(store.palette().waterLayer()).append('}');
         Http.json(ex, 200, out.toString());
     }
 
@@ -162,9 +162,7 @@ public class TerrainApi {
     }
 
     public void models(HttpExchange ex) throws IOException {
-        ByteBuffer buf = ByteBuffer.allocate(12 + 4).order(ByteOrder.LITTLE_ENDIAN);
-        buf.put("VXM1".getBytes(StandardCharsets.US_ASCII)).putInt(0).putInt(0).putInt(0);
-        Http.bytes(ex, 200, "application/octet-stream", buf.array());
+        Http.bytes(ex, 200, "application/octet-stream", store.palette().assets().modelsBlob());
     }
 
     private static String worldName(Minecraft mc) {

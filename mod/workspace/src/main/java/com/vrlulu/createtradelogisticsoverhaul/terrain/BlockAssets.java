@@ -15,6 +15,7 @@ import net.minecraft.world.level.block.LeavesBlock;
 import net.minecraft.world.level.block.LiquidBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.FluidState;
+import net.minecraft.world.phys.AABB;
 import net.neoforged.neoforge.client.model.data.ModelData;
 
 import java.io.InputStream;
@@ -36,12 +37,17 @@ public class BlockAssets {
     private static final Direction[] DIRS = {
             Direction.EAST, Direction.WEST, Direction.UP, Direction.DOWN, Direction.SOUTH, Direction.NORTH};
 
-    /** kind: see TerrainPalette; faces: texture layer per direction; tintMask: bit per direction. */
-    public record BlockInfo(int kind, int[] faces, int tintMask, boolean cubeAtLod) {
+    /**
+     * kind: see TerrainPalette; faces: texture layer per direction; tintMask: bit per direction;
+     * model: index into the baked model list, or -1 for plain cubes.
+     */
+    public record BlockInfo(int kind, int[] faces, int tintMask, boolean cubeAtLod, int model) {
     }
 
     private final Map<String, Integer> layerByKey = new HashMap<>();
     private final List<byte[]> layers = new ArrayList<>();     // TEX*TEX*4 RGBA each
+    private final List<float[]> models = new ArrayList<>();    // one float[n * 24] per model
+    private final Map<BlockState, BlockInfo> infoCache = new java.util.concurrent.ConcurrentHashMap<>();
 
     public BlockAssets() {
         byte[] missing = new byte[TEX * TEX * 4];
@@ -59,6 +65,34 @@ public class BlockAssets {
         return layers.size();
     }
 
+    public synchronized int modelCount() {
+        return models.size();
+    }
+
+    /** "VXM1", u32 first index, u32 count, u32 quad offsets[count + 1], then the quad floats. */
+    public synchronized byte[] modelsBlob() {
+        int quads = 0;
+        for (float[] m : models) {
+            quads += m.length / ModelBaker.FLOATS_PER_QUAD;
+        }
+        java.nio.ByteBuffer buf = java.nio.ByteBuffer
+                .allocate(12 + (models.size() + 1) * 4 + quads * ModelBaker.FLOATS_PER_QUAD * 4)
+                .order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        buf.put("VXM1".getBytes(java.nio.charset.StandardCharsets.US_ASCII)).putInt(0).putInt(models.size());
+        int offset = 0;
+        buf.putInt(0);
+        for (float[] m : models) {
+            offset += m.length / ModelBaker.FLOATS_PER_QUAD;
+            buf.putInt(offset);
+        }
+        for (float[] m : models) {
+            for (float f : m) {
+                buf.putFloat(f);
+            }
+        }
+        return buf.array();
+    }
+
     public synchronized byte[] atlasBytes() {
         byte[] out = new byte[layers.size() * TEX * TEX * 4];
         for (int i = 0; i < layers.size(); i++) {
@@ -67,10 +101,23 @@ public class BlockAssets {
         return out;
     }
 
-    /** Classifies a block state and registers the textures its faces use. */
+    /**
+     * Classifies a block state and registers the textures and model it uses. Cached per state:
+     * baking a model and reading textures is far too expensive to redo per voxel.
+     */
     public BlockInfo infoFor(BlockState state) {
+        BlockInfo cached = infoCache.get(state);
+        if (cached != null) {
+            return cached;
+        }
+        BlockInfo info = computeInfo(state);
+        infoCache.put(state, info);
+        return info;
+    }
+
+    private BlockInfo computeInfo(BlockState state) {
         if (state.isAir()) {
-            return new BlockInfo(TerrainPalette.KIND_AIR, new int[6], 0, false);
+            return new BlockInfo(TerrainPalette.KIND_AIR, new int[6], 0, false, -1);
         }
         FluidState fluid = state.getFluidState();
         if (state.getBlock() instanceof LiquidBlock && !fluid.isEmpty()) {
@@ -79,7 +126,7 @@ public class BlockAssets {
             int[] faces = new int[6];
             java.util.Arrays.fill(faces, layer);
             return new BlockInfo(water ? TerrainPalette.KIND_WATER : TerrainPalette.KIND_SOLID,
-                    faces, water ? 0x3F : 0, false);
+                    faces, water ? 0x3F : 0, false, -1);
         }
 
         boolean leaves = state.getBlock() instanceof LeavesBlock;
@@ -102,14 +149,78 @@ public class BlockAssets {
             java.util.Arrays.fill(faces, particle);
         }
         if (!fullCube) {
-            // Non-cubes (plants, torches, rails, slabs...) aren't drawn yet; solid-ish ones still
-            // show as cubes far away, where Voxy's own LODs do the same.
-            boolean chunky = Block.isShapeFullBlock(state.getShape(Minecraft.getInstance().level, BlockPos.ZERO))
-                    || state.isCollisionShapeFullBlock(Minecraft.getInstance().level, BlockPos.ZERO);
-            return new BlockInfo(TerrainPalette.KIND_MODEL, faces, tintMask, chunky);
+            // Plants, torches, rails, slabs, stairs, fences...: drawn from their real quads up close,
+            // and as cubes at coarse LODs when they fill enough of the block (as Voxy's LODs do).
+            int model = bakeModel(state, leaves);
+            boolean chunky = volumeFraction(state) >= 0.2;
+            return new BlockInfo(TerrainPalette.KIND_MODEL, faces, tintMask, chunky, model);
         }
         int kind = leaves || state.canOcclude() ? TerrainPalette.KIND_SOLID : TerrainPalette.KIND_GLASS;
-        return new BlockInfo(kind, faces, tintMask, true);
+        return new BlockInfo(kind, faces, tintMask, true, -1);
+    }
+
+    /**
+     * Collects a block's baked quads. Blocks the game draws with code (chests, beds, signs) have
+     * none: those get a plain box the size of their own shape, or nothing if they have no shape.
+     */
+    private int bakeModel(BlockState state, boolean leaves) {
+        List<float[]> quads = new ArrayList<>();
+        try {
+            BakedModel model = modelOf(state);
+            for (Direction dir : Direction.values()) {
+                for (BakedQuad quad : model.getQuads(state, dir, RANDOM, ModelData.EMPTY, null)) {
+                    float[] converted = ModelBaker.convert(quad, layerFor(quad.getSprite(), leaves),
+                            ModelBaker.dirIndex(dir));
+                    if (converted != null) {
+                        quads.add(converted);
+                    }
+                }
+            }
+            for (BakedQuad quad : model.getQuads(state, null, RANDOM, ModelData.EMPTY, null)) {
+                float[] converted = ModelBaker.convert(quad, layerFor(quad.getSprite(), leaves), -1);
+                if (converted != null) {
+                    quads.add(converted);
+                }
+            }
+        } catch (Throwable t) {
+            CreateTradeLogisticsOverhaul.LOG.debug("No baked quads for {}", state, t);
+        }
+        if (quads.isEmpty()) {
+            try {
+                var shape = state.getShape(Minecraft.getInstance().level, BlockPos.ZERO);
+                if (shape.isEmpty()) {
+                    return -1;
+                }
+                quads.addAll(ModelBaker.box(shape.bounds(), layerFor(particleOf(state), false)));
+            } catch (Throwable t) {
+                return -1;
+            }
+        }
+        float[] flat = new float[quads.size() * ModelBaker.FLOATS_PER_QUAD];
+        for (int i = 0; i < quads.size(); i++) {
+            System.arraycopy(quads.get(i), 0, flat, i * ModelBaker.FLOATS_PER_QUAD, ModelBaker.FLOATS_PER_QUAD);
+        }
+        synchronized (this) {
+            models.add(flat);
+            return models.size() - 1;
+        }
+    }
+
+    /** Roughly how much of the block its shape fills, deciding whether it survives as a cube far away. */
+    private static double volumeFraction(BlockState state) {
+        try {
+            var shape = state.getCollisionShape(Minecraft.getInstance().level, BlockPos.ZERO);
+            if (shape.isEmpty()) {
+                shape = state.getShape(Minecraft.getInstance().level, BlockPos.ZERO);
+            }
+            double volume = 0;
+            for (AABB box : shape.toAabbs()) {
+                volume += box.getXsize() * box.getYsize() * box.getZsize();
+            }
+            return Math.min(volume, 1.0);
+        } catch (Throwable t) {
+            return 0;
+        }
     }
 
     private static boolean isFullCube(BlockState state) {

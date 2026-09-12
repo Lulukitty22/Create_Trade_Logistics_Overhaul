@@ -27,20 +27,25 @@ public class TerrainPalette {
     public static final int FLAG_CUBE_AT_LOD = 1 << 7;
     public static final int GID_AIR = 0, GID_CAVE = 1;
     private static final int[] CAVE_RGB = {26, 24, 30};
+    private static final BlockAssets.BlockInfo AIR_INFO =
+            new BlockAssets.BlockInfo(KIND_AIR, new int[6], 0, false, -1);
 
     private final BlockAssets assets = new BlockAssets();
     private final Long2IntOpenHashMap gidByKey = new Long2IntOpenHashMap();   // block<<32 | biome+1
+    private final it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap<BlockAssets.BlockInfo> infoByBlockId =
+            new it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap<>();
     private final List<Integer> kinds = new ArrayList<>();
     private final List<int[]> top = new ArrayList<>(), side = new ArrayList<>(), tint = new ArrayList<>();
     private final List<int[]> faces = new ArrayList<>();
-    private final List<Integer> flags = new ArrayList<>(), blockNameIndex = new ArrayList<>(), biomeIndex = new ArrayList<>();
+    private final List<Integer> flags = new ArrayList<>(), blockNameIndex = new ArrayList<>(),
+            biomeIndex = new ArrayList<>(), modelIndex = new ArrayList<>();
     private final List<String> names = new ArrayList<>(), biomeNames = new ArrayList<>();
     private int waterLayer;
 
     public TerrainPalette() {
         gidByKey.defaultReturnValue(-1);
-        add(KIND_AIR, new int[]{0, 0, 0}, new int[]{0, 0, 0}, new int[6], 0, 0, -1, -1);
-        add(KIND_CAVE, CAVE_RGB, CAVE_RGB, new int[6], 0, 0, -1, -1);
+        add(KIND_AIR, new int[]{0, 0, 0}, new int[]{0, 0, 0}, new int[6], 0, 0, -1, -1, -1);
+        add(KIND_CAVE, CAVE_RGB, CAVE_RGB, new int[6], 0, 0, -1, -1, -1);
     }
 
     public BlockAssets assets() {
@@ -48,7 +53,7 @@ public class TerrainPalette {
     }
 
     private int add(int kind, int[] topRgb, int[] sideRgb, int[] faceLayers, int tintMask, int extraFlags,
-                    int nameIdx, int biomeIdx) {
+                    int nameIdx, int biomeIdx, int model) {
         kinds.add(kind);
         top.add(topRgb);
         side.add(sideRgb);
@@ -57,16 +62,23 @@ public class TerrainPalette {
         flags.add(tintMask | extraFlags);
         blockNameIndex.add(nameIdx);
         biomeIndex.add(biomeIdx);
+        modelIndex.add(model);
         return kinds.size() - 1;
     }
 
     /** Global id for a Voxy (block, biome) pair, registering it on first sight. */
     public synchronized int gidFor(Mapper mapper, int blockId, int biomeId) {
-        BlockState state = stateOf(mapper, blockId);
-        if (state == null || state.isAir()) {
-            return GID_AIR;
+        BlockAssets.BlockInfo info = infoByBlockId.get(blockId);
+        BlockState state = null;
+        if (info == null) {
+            state = stateOf(mapper, blockId);
+            if (state == null || state.isAir()) {
+                infoByBlockId.put(blockId, AIR_INFO);
+                return GID_AIR;
+            }
+            info = assets.infoFor(state);
+            infoByBlockId.put(blockId, info);
         }
-        BlockAssets.BlockInfo info = assets.infoFor(state);
         if (info.kind() == KIND_AIR) {
             return GID_AIR;
         }
@@ -75,6 +87,12 @@ public class TerrainPalette {
         int existing = gidByKey.get(key);
         if (existing >= 0) {
             return existing;
+        }
+        if (state == null) {
+            state = stateOf(mapper, blockId);
+            if (state == null) {
+                return GID_AIR;
+            }
         }
         int[] rgb = mapColorOf(state);
         int[] darker = {rgb[0] * 8 / 10, rgb[1] * 8 / 10, rgb[2] * 8 / 10};
@@ -90,7 +108,7 @@ public class TerrainPalette {
             }
         }
         int gid = add(info.kind(), rgb, darker, info.faces(), info.tintMask(),
-                info.cubeAtLod() ? FLAG_CUBE_AT_LOD : 0, names.size() - 1, biomeIdx);
+                info.cubeAtLod() ? FLAG_CUBE_AT_LOD : 0, names.size() - 1, biomeIdx, info.model());
         if (info.kind() == KIND_WATER && waterLayer == 0) {
             waterLayer = info.faces()[2];
         }
@@ -190,8 +208,8 @@ public class TerrainPalette {
             }
         }
         out.append("],\"model\":[");
-        for (int i = 0; i < kinds.size(); i++) {
-            out.append(i == 0 ? "" : ",").append(-1);
+        for (int i = 0; i < modelIndex.size(); i++) {
+            out.append(i == 0 ? "" : ",").append(modelIndex.get(i));
         }
         out.append("],\"rot\":[");
         for (int i = 0; i < kinds.size(); i++) {
