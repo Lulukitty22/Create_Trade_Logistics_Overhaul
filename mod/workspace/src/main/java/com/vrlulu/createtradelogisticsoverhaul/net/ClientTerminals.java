@@ -20,6 +20,8 @@ public final class ClientTerminals {
     private static volatile long requestedAt;
     private static volatile String dispatchJson = "{}";
     private static volatile boolean autoDispatch;
+    private static final Object dispatchLock = new Object();
+    private static volatile long dispatchVersion;
 
     private ClientTerminals() {
     }
@@ -64,16 +66,47 @@ public final class ClientTerminals {
         return autoDispatch;
     }
 
+    public static long dispatchVersion() {
+        return dispatchVersion;
+    }
+
     public static void requestDispatch(boolean run) {
         if (Minecraft.getInstance().getConnection() != null) {
             PacketDistributor.sendToServer(new Payloads.RequestDispatch(run));
         }
     }
 
+    /**
+     * Waits briefly for a dispatch reply newer than {@code since}. The page asks over HTTP but the
+     * server answers with a packet, so the web thread parks here rather than handing back stale
+     * numbers. It deliberately does not ring the event stream: that would make the page ask again,
+     * and the two would chase each other forever.
+     */
+    public static void awaitDispatch(long since, long timeoutMs) {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        synchronized (dispatchLock) {
+            while (dispatchVersion == since) {
+                long left = deadline - System.currentTimeMillis();
+                if (left <= 0) {
+                    return;
+                }
+                try {
+                    dispatchLock.wait(left);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        }
+    }
+
     static void acceptDispatch(Payloads.DispatchStatus status) {
         dispatchJson = status.json();
         autoDispatch = status.autoEnabled();
-        ChangeHub.get().notifyTerminals();
+        synchronized (dispatchLock) {
+            dispatchVersion++;
+            dispatchLock.notifyAll();
+        }
     }
 
     static void accept(Payloads.Terminals payload) {

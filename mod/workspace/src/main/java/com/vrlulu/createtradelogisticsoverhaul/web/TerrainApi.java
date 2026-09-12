@@ -228,8 +228,9 @@ public class TerrainApi {
             String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             run = body.contains("\"run\"") && body.contains("true");
         }
+        long seen = ClientTerminals.dispatchVersion();
         ClientTerminals.requestDispatch(run);
-        // The reply lands asynchronously; hand back what we have and let the event stream nudge us.
+        ClientTerminals.awaitDispatch(seen, 1500);
         Http.json(ex, 200, "{\"autoDispatch\":" + ClientTerminals.autoDispatch()
                 + ",\"requested\":" + run + ",\"status\":" + ClientTerminals.dispatchJson() + "}");
     }
