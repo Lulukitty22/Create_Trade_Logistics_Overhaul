@@ -98,10 +98,10 @@ public class LogisticsTerminalBlock extends HorizontalDirectionalBlock implement
         if (!level.isClientSide) {
             return InteractionResult.SUCCESS;
         }
-        if (!terminal.accessFor(player).atLeast(TerminalSettings.Access.VIEW)) {
-            player.displayClientMessage(Component.literal("You may not use this terminal"), true);
-            return InteractionResult.SUCCESS;
-        }
+        // No permission check here: the block entity's settings never travel to the client, so a
+        // check on this side would read defaults and could lock the owner out of their own terminal.
+        // The window shows the access level the server sent with the terminal list, and the server
+        // checks again on every save.
         com.vrlulu.createtradelogisticsoverhaul.client.TerminalScreenOpener.open(pos);
         return InteractionResult.SUCCESS;
     }

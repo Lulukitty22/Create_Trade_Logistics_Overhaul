@@ -98,7 +98,9 @@ public class TerminalScreen extends Screen {
         role.active = admin;
         publicAccess.active = admin;
         autoDispatch.active = admin;
-        if (!admin) {
+        if ("NONE".equals(terminal.access())) {
+            status = "You may not use this terminal";
+        } else if (!admin) {
             status = "Only the owner can change this terminal";
         }
     }
