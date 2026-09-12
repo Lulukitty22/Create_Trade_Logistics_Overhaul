@@ -9,7 +9,12 @@ import com.simibubi.create.content.trains.schedule.Schedule;
 import com.simibubi.create.content.trains.schedule.ScheduleEntry;
 import com.simibubi.create.content.trains.schedule.destination.DeliverPackagesInstruction;
 import com.simibubi.create.content.trains.schedule.destination.DestinationInstruction;
+import com.simibubi.create.content.trains.schedule.condition.IdleCargoCondition;
+import com.simibubi.create.content.trains.schedule.condition.ScheduleWaitCondition;
+import com.simibubi.create.content.trains.schedule.condition.ScheduledDelay;
+import com.simibubi.create.content.trains.schedule.condition.TimedWaitCondition;
 import com.simibubi.create.content.trains.schedule.destination.FetchPackagesInstruction;
+import com.simibubi.create.content.trains.schedule.destination.ScheduleInstruction;
 import com.simibubi.create.content.trains.station.GlobalPackagePort;
 import com.simibubi.create.content.trains.station.GlobalStation;
 import com.vrlulu.createtradelogisticsoverhaul.CreateTradeLogisticsOverhaul;
@@ -188,39 +193,76 @@ public final class Dispatcher {
         // of dispatching: the train would go wherever Create fancied rather than where it was sent.
         // This also makes the schedule match the plan the map showed, stop for stop.
         if (stationNamed(pickup.name + REVERSE_SUFFIX) != null) {
-            schedule.entries.add(destination(pickup.name + REVERSE_SUFFIX, registries));
+            schedule.entries.add(entry(destination(pickup.name + REVERSE_SUFFIX, registries),
+                    delay(registries, 1)));
         }
-        schedule.entries.add(destination(pickup.name, registries));
-        schedule.entries.add(fetchPackages(plan.address(), registries));
+        schedule.entries.add(entry(destination(pickup.name, registries), cargoIdle(registries, 3)));
+        schedule.entries.add(entry(fetchPackages(plan.address(), registries), cargoIdle(registries, 3)));
         if (stationNamed(drop.name + REVERSE_SUFFIX) != null) {
-            schedule.entries.add(destination(drop.name + REVERSE_SUFFIX, registries));
+            schedule.entries.add(entry(destination(drop.name + REVERSE_SUFFIX, registries),
+                    delay(registries, 1)));
         }
-        schedule.entries.add(destination(drop.name, registries));
-        schedule.entries.add(deliverPackages());
+        schedule.entries.add(entry(destination(drop.name, registries), cargoIdle(registries, 3)));
+        schedule.entries.add(entry(deliverPackages(), cargoIdle(registries, 3)));
         train.runtime.setSchedule(schedule, true);
         CreateTradeLogisticsOverhaul.LOG.info("Dispatched {} : {} -> {} for {}",
                 plan.trainName(), plan.pickupStation(), plan.dropStation(), plan.address());
         return true;
     }
 
-    private static ScheduleEntry destination(String stationName, net.minecraft.core.HolderLookup.Provider registries) {
+    /**
+     * Wraps an instruction as a stop the train will actually leave again.
+     *
+     * <p>An entry with no wait conditions is a trap: ScheduleRuntime advances the schedule from
+     * inside the loop over those conditions, so with an empty list it never advances and the train
+     * sits at that stop for good. Every instruction here reports supportsConditions() == true, so
+     * every one of them needs a condition.
+     */
+    private static ScheduleEntry entry(ScheduleInstruction instruction, ScheduleWaitCondition condition) {
+        List<ScheduleWaitCondition> column = new ArrayList<>();
+        column.add(condition);
+        List<List<ScheduleWaitCondition>> conditions = new ArrayList<>();
+        conditions.add(column);
+        return new ScheduleEntry(instruction, conditions);
+    }
+
+    /** Leave once nothing has been loaded or unloaded for a few seconds. */
+    private static ScheduleWaitCondition cargoIdle(net.minecraft.core.HolderLookup.Provider registries, int seconds) {
+        return timed(new IdleCargoCondition(), registries, seconds);
+    }
+
+    /** Leave after a fixed pause - for reverse points, where nothing is being loaded. */
+    private static ScheduleWaitCondition delay(net.minecraft.core.HolderLookup.Provider registries, int seconds) {
+        return timed(new ScheduledDelay(), registries, seconds);
+    }
+
+    private static ScheduleWaitCondition timed(TimedWaitCondition condition,
+                                               net.minecraft.core.HolderLookup.Provider registries, int seconds) {
+        CompoundTag data = new CompoundTag();
+        data.putInt("Value", seconds);
+        data.putInt("TimeUnit", TimedWaitCondition.TimeUnit.SECONDS.ordinal());
+        condition.setData(registries, data);
+        return condition;
+    }
+
+    private static ScheduleInstruction destination(String stationName, net.minecraft.core.HolderLookup.Provider registries) {
         DestinationInstruction instruction = new DestinationInstruction();
         CompoundTag data = new CompoundTag();
         data.putString("Text", stationName);
         instruction.setData(registries, data);
-        return new ScheduleEntry(instruction, new ArrayList<>());
+        return instruction;
     }
 
-    private static ScheduleEntry fetchPackages(String addressFilter, net.minecraft.core.HolderLookup.Provider registries) {
+    private static ScheduleInstruction fetchPackages(String addressFilter, net.minecraft.core.HolderLookup.Provider registries) {
         FetchPackagesInstruction instruction = new FetchPackagesInstruction();
         CompoundTag data = new CompoundTag();
         data.putString("Text", addressFilter);
         instruction.setData(registries, data);
-        return new ScheduleEntry(instruction, new ArrayList<>());
+        return instruction;
     }
 
-    private static ScheduleEntry deliverPackages() {
-        return new ScheduleEntry(new DeliverPackagesInstruction(), new ArrayList<>());
+    private static ScheduleInstruction deliverPackages() {
+        return new DeliverPackagesInstruction();
     }
 
     /** The station of an interchange terminal (role POST_OFFICE with an other side) on this railway. */
