@@ -384,8 +384,18 @@ whose chunks are loaded without scanning the world.
 returns the player's entry, else the public access, and the owner always has ADMIN.
 
 **Payments** go through Numismatics by reflection (`Payments.java`), so the mod still loads without
-it — a priced listing simply refuses the order and says why. Funds currently transfer at order time;
-holding them in escrow until delivery is still to do.
+it — a priced listing simply refuses the order and says why.
+
+Money is **held, not paid**. Ordering withdraws the buyer's funds into `Escrow` (a `SavedData` in the
+overworld, so a restart mid-delivery doesn't swallow anyone's money) and they sit there until:
+
+- the destination terminal's stock rises by what was ordered — delivered, so the seller is paid;
+- Create couldn't fill the order at all — refunded to the buyer immediately;
+- ten minutes pass with nothing observed — the seller is paid anyway. Payment is only ever taken
+  once Create has accepted the request, which means the stock really was packaged, so after the
+  grace period it was most likely delivered and consumed before anyone looked.
+
+`/ctlo escrow` lists what is currently held.
 
 **Dispatching.** `Dispatcher.plan()` reads every station postbox, groups the packages by address,
 finds the station serving that address (exact match, then wildcards like `PD-C01-B*`), picks an idle
@@ -397,6 +407,9 @@ does. Packages bound for another railway are routed one leg at a time to that ra
 `DispatchService` runs the same thing on a tick loop for terminals with auto dispatch on, gated by a
 global switch (`/ctlo auto on|off`, default off). `/ctlo packages` and `/ctlo dispatch [run]` give the
 same view in chat.
+
+**Crafting.** Electron tube over stock link + precision mechanism + display link, over a brass
+casing. Create is now a declared required dependency; Voxy and Numismatics are declared optional.
 
 **On the map**, the terminals panel lists the runs with their stops and, for blocked ones, the reason
 (`no idle train on that track network`, `no station serves PD-C02-B07`). Terminals something is
@@ -527,6 +540,9 @@ Measured with `model_survey.py` against every block state Voxy has seen:
 - **2026-09-11:** Dispatching from the map requires operator rights, and a page load never dispatches
   — `GET /api/dispatch` plans, `POST` runs.
 - **2026-09-11:** Numismatics is optional and reached by reflection, so the mod loads without it.
+- **2026-09-11:** Escrow releases to the seller after a grace period rather than refunding the
+  buyer. Payment is only taken once Create has accepted the request, so the goods did leave; a
+  refund by default would let a buyer take delivery and keep the money.
 - **2026-09-10:** Textures and JSON block models are implemented. Blocks drawn by code in the game (chests, Create kinetic parts, …) aren't worth replicating; they get simple stand-ins or are skipped.
 
 ## Open questions

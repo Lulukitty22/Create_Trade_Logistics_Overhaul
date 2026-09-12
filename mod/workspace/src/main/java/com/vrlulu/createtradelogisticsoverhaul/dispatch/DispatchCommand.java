@@ -44,6 +44,26 @@ public final class DispatchCommand {
             return waiting.size();
         }));
 
+        root.then(Commands.literal("escrow").executes(context -> {
+            CommandSourceStack source = context.getSource();
+            var held = com.vrlulu.createtradelogisticsoverhaul.logistics.Escrow
+                    .of(source.getServer()).open();
+            if (held.isEmpty()) {
+                source.sendSuccess(() -> Component.literal("No payments are being held"), false);
+                return 0;
+            }
+            source.sendSuccess(() -> Component.literal(held.size() + " payment(s) held:")
+                    .withStyle(ChatFormatting.GOLD), false);
+            long now = System.currentTimeMillis();
+            for (var entry : held) {
+                long waited = (now - entry.placedAt()) / 1000;
+                source.sendSuccess(() -> Component.literal("  " + entry.amount() + " for "
+                        + entry.count() + " x " + entry.item() + " to " + entry.address()
+                        + "  (" + waited + "s)"), false);
+            }
+            return held.size();
+        }));
+
         root.then(Commands.literal("dispatch")
                 .executes(context -> report(context.getSource(), false))
                 .then(Commands.literal("run").executes(context -> report(context.getSource(), true))));

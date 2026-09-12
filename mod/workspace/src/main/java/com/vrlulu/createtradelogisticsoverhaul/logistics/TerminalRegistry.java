@@ -64,6 +64,23 @@ public class TerminalRegistry extends SavedData {
         return out;
     }
 
+    /** How many of an item the terminal at an address holds, or -1 if no loaded terminal has it. */
+    public static int stockAtAddress(net.minecraft.server.MinecraftServer server, String address, String itemId) {
+        net.minecraft.world.item.Item item = net.minecraft.core.registries.BuiltInRegistries.ITEM
+                .get(net.minecraft.resources.ResourceLocation.parse(itemId));
+        if (server == null || item == null || address == null || address.isBlank()) {
+            return -1;
+        }
+        for (ServerLevel level : server.getAllLevels()) {
+            for (LogisticsTerminalBlockEntity terminal : forLevel(level).loaded(level)) {
+                if (address.equals(terminal.address())) {
+                    return terminal.countOf(new net.minecraft.world.item.ItemStack(item));
+                }
+            }
+        }
+        return -1;
+    }
+
     public int size() {
         return positions.size();
     }

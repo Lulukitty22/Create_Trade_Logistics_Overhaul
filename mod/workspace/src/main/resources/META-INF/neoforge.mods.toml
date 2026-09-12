@@ -23,5 +23,30 @@ versionRange = "[1.21.1]"
 ordering = "NONE"
 side = "BOTH"
 
+# Create supplies the packages, stations and schedules this mod tasks.
+[[dependencies.${mod_id}]]
+modId = "create"
+type = "required"
+versionRange = "[6.0,)"
+ordering = "AFTER"
+side = "BOTH"
+
+# Voxy provides the terrain the map draws; without it the map has no world to show,
+# but everything else still works, so it is only optional.
+[[dependencies.${mod_id}]]
+modId = "voxy"
+type = "optional"
+versionRange = "[0.2,)"
+ordering = "AFTER"
+side = "CLIENT"
+
+# Numismatics is only needed to charge for a listing, and is reached by reflection.
+[[dependencies.${mod_id}]]
+modId = "numismatics"
+type = "optional"
+versionRange = "[1.0,)"
+ordering = "AFTER"
+side = "BOTH"
+
 [[mixins]]
 config = "createtradelogisticsoverhaul.mixins.json"

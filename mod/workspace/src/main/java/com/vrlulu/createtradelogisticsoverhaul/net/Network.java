@@ -2,6 +2,7 @@ package com.vrlulu.createtradelogisticsoverhaul.net;
 
 import com.simibubi.create.content.logistics.BigItemStack;
 import com.vrlulu.createtradelogisticsoverhaul.CreateTradeLogisticsOverhaul;
+import com.vrlulu.createtradelogisticsoverhaul.logistics.Escrow;
 import com.vrlulu.createtradelogisticsoverhaul.logistics.LogisticsTerminalBlockEntity;
 import com.vrlulu.createtradelogisticsoverhaul.logistics.Payments;
 import com.vrlulu.createtradelogisticsoverhaul.logistics.TerminalRegistry;
@@ -127,22 +128,36 @@ public final class Network {
                 }
                 price = listing.price() * payload.count();
             }
-            if (price > 0 && !Payments.transfer(player, terminal.ownerId(), price)) {
-                context.reply(new Payloads.OrderResult(false, Payments.available()
-                        ? "Payment of " + price + " failed (not enough funds?)"
-                        : "This terminal charges money, but Numismatics is not installed"));
-                return;
+            // The money is held, not paid: it goes to the seller once the goods turn up.
+            long hold = -1;
+            if (price > 0) {
+                int baseline = TerminalRegistry.stockAtAddress(
+                        level.getServer(), payload.address(), payload.item());
+                hold = Escrow.of(level.getServer()).hold(player, terminal.ownerId(), price,
+                        payload.address(), payload.item(), payload.count(), Math.max(0, baseline));
+                if (hold < 0) {
+                    context.reply(new Payloads.OrderResult(false, Payments.available()
+                            ? "Payment of " + price + " failed (not enough funds?)"
+                            : "This terminal charges money, but Numismatics is not installed"));
+                    return;
+                }
             }
 
             boolean sent = terminal.order(
                     List.of(LogisticsTerminalBlockEntity.bigStack(new ItemStack(item), payload.count())),
                     payload.address());
             String what = payload.count() + " x " + item.getDescription().getString();
-            String paid = price > 0 ? " for " + price : "";
-            context.reply(sent
-                    ? new Payloads.OrderResult(true, "Ordered " + what + paid + " to " + payload.address())
-                    : new Payloads.OrderResult(false, "No packager could fill " + what
-                            + " (is the network loaded and stocked?)"));
+            if (!sent) {
+                if (hold >= 0) {
+                    Escrow.of(level.getServer()).refund(hold);
+                }
+                context.reply(new Payloads.OrderResult(false, "No packager could fill " + what
+                        + " (is the network loaded and stocked?)"));
+                return;
+            }
+            String paid = price > 0 ? " for " + price + " (held until it arrives)" : "";
+            context.reply(new Payloads.OrderResult(true,
+                    "Ordered " + what + paid + " to " + payload.address()));
         });
     }
 

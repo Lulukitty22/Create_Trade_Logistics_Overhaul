@@ -34,6 +34,7 @@ import java.util.Map;
 @EventBusSubscriber(modid = CreateTradeLogisticsOverhaul.ID)
 public final class DispatchService {
     private static final int DISPATCH_INTERVAL_TICKS = 100;      // 5s
+    private static final int ESCROW_INTERVAL_TICKS = 100;        // 5s
     private static final int SUPPLY_INTERVAL_TICKS = 600;        // 30s
 
     private static boolean enabled = false;
@@ -55,11 +56,21 @@ public final class DispatchService {
 
     @SubscribeEvent
     public static void onServerTick(ServerTickEvent.Post event) {
+        ticks++;
+        MinecraftServer server = event.getServer();
+        // Held payments are settled whether or not automatic dispatch is on: someone's money is
+        // waiting on a delivery either way.
+        if (ticks % ESCROW_INTERVAL_TICKS == 0) {
+            try {
+                com.vrlulu.createtradelogisticsoverhaul.logistics.Escrow.of(server).settle(
+                        (address, item) -> TerminalRegistry.stockAtAddress(server, address, item));
+            } catch (Throwable t) {
+                CreateTradeLogisticsOverhaul.LOG.error("Settling held payments failed", t);
+            }
+        }
         if (!enabled) {
             return;
         }
-        ticks++;
-        MinecraftServer server = event.getServer();
         if (ticks % DISPATCH_INTERVAL_TICKS == 0) {
             try {
                 dispatchReady(server);

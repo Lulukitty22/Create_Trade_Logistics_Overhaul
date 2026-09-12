@@ -1,0 +1,20 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    " E ",
+    "LPD",
+    " B "
+  ],
+  "key": {
+    "E": { "item": "create:electron_tube" },
+    "L": { "item": "create:stock_link" },
+    "P": { "item": "create:precision_mechanism" },
+    "D": { "item": "create:display_link" },
+    "B": { "item": "create:brass_casing" }
+  },
+  "result": {
+    "id": "createtradelogisticsoverhaul:logistics_terminal",
+    "count": 1
+  }
+}
