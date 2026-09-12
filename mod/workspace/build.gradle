@@ -50,6 +50,18 @@ dependencies {
     }
     if (createJar && file(createJar).exists()) {
         compileOnly files(createJar)
+        // Create bundles its libraries (Ponder, Catnip, Flywheel, Registrate) as jar-in-jar, and
+        // its own API leaks their types - SmartBlockEntity implements Ponder's VirtualBlockEntity -
+        // so they have to be on the compile classpath too. Unpack them rather than ask for more
+        // paths in local.properties.
+        def createLibs = file("${layout.buildDirectory.get().asFile}/createLibs")
+        copy {
+            from zipTree(createJar).matching { include 'META-INF/jarjar/*.jar' }
+            into createLibs
+            eachFile { it.relativePath = new RelativePath(true, it.name) }
+            includeEmptyDirs = false
+        }
+        compileOnly fileTree(dir: createLibs, include: '*.jar')
     } else {
         logger.lifecycle('No Create jar configured (local.properties: create_jar) - logistics code will not compile.')
     }

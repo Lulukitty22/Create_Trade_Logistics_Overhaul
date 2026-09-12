@@ -96,10 +96,6 @@ public final class Network {
                 context.reply(new Payloads.OrderResult(false, "You may not order from " + terminal.terminalName()));
                 return;
             }
-            if (!terminal.isTuned()) {
-                context.reply(new Payloads.OrderResult(false, "That terminal has no network"));
-                return;
-            }
             if (payload.address().isBlank()) {
                 context.reply(new Payloads.OrderResult(false, "No delivery address given"));
                 return;

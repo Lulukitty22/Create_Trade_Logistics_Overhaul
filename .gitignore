@@ -19,3 +19,6 @@ mod/workspace/local.properties
 # scratch files from API probing
 mod/workspace/*.bin
 mod/workspace/*.json
+
+# Upstream sources kept for reference only
+reference/

@@ -2,11 +2,10 @@ package com.vrlulu.createtradelogisticsoverhaul.logistics;
 
 import com.mojang.serialization.MapCodec;
 import com.simibubi.create.content.logistics.packagerLink.LogisticallyLinkedBlockItem;
+import com.simibubi.create.foundation.block.IBE;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
-import net.minecraft.world.ItemInteractionResult;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -21,13 +20,12 @@ import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.phys.BlockHitResult;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.UUID;
-
 /**
  * The Logistics Terminal block: right-click it with a tuned stock link to attach it to that
  * network, then it appears on the logistics map.
  */
-public class LogisticsTerminalBlock extends HorizontalDirectionalBlock implements net.minecraft.world.level.block.EntityBlock {
+public class LogisticsTerminalBlock extends HorizontalDirectionalBlock
+        implements IBE<LogisticsTerminalBlockEntity> {
     public static final MapCodec<LogisticsTerminalBlock> CODEC = simpleCodec(LogisticsTerminalBlock::new);
 
     public LogisticsTerminalBlock(Properties properties) {
@@ -56,6 +54,24 @@ public class LogisticsTerminalBlock extends HorizontalDirectionalBlock implement
         return new LogisticsTerminalBlockEntity(pos, state);
     }
 
+    // Create's LogisticallyLinkedBlockItem casts the block it is placing to IBE when it tunes a
+    // stack, so a linked block that does not implement this simply cannot be bound.
+    @Override
+    public Class<LogisticsTerminalBlockEntity> getBlockEntityClass() {
+        return LogisticsTerminalBlockEntity.class;
+    }
+
+    @Override
+    public BlockEntityType<? extends LogisticsTerminalBlockEntity> getBlockEntityType() {
+        return ModContent.TERMINAL_BE.get();
+    }
+
+    /** SmartBlockEntity needs telling when it is destroyed rather than merely unloaded. */
+    @Override
+    protected void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean moving) {
+        IBE.onRemove(state, level, pos, newState);
+    }
+
     @Override
     public void setPlacedBy(Level level, BlockPos pos, BlockState state, @Nullable LivingEntity placer, ItemStack stack) {
         if (level.isClientSide || !(level.getBlockEntity(pos) instanceof LogisticsTerminalBlockEntity terminal)) {
@@ -69,23 +85,6 @@ public class LogisticsTerminalBlock extends HorizontalDirectionalBlock implement
         if (LogisticallyLinkedBlockItem.isTuned(stack)) {
             terminal.tuneTo(LogisticallyLinkedBlockItem.networkFromStack(stack));
         }
-    }
-
-    @Override
-    protected ItemInteractionResult useItemOn(ItemStack stack, BlockState state, Level level, BlockPos pos,
-                                              Player player, InteractionHand hand, BlockHitResult hit) {
-        if (!(level.getBlockEntity(pos) instanceof LogisticsTerminalBlockEntity terminal)) {
-            return ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION;
-        }
-        if (stack.getItem() instanceof LogisticallyLinkedBlockItem && LogisticallyLinkedBlockItem.isTuned(stack)) {
-            UUID network = LogisticallyLinkedBlockItem.networkFromStack(stack);
-            if (!level.isClientSide) {
-                terminal.tuneTo(network);
-                player.displayClientMessage(Component.literal("Terminal connected to that logistics network"), true);
-            }
-            return ItemInteractionResult.sidedSuccess(level.isClientSide);
-        }
-        return ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION;
     }
 
     /** Empty hand: open the terminal's window. */
@@ -106,10 +105,4 @@ public class LogisticsTerminalBlock extends HorizontalDirectionalBlock implement
         return InteractionResult.SUCCESS;
     }
 
-    @Nullable
-    @Override
-    public <T extends BlockEntity> net.minecraft.world.level.block.entity.BlockEntityTicker<T> getTicker(
-            Level level, BlockState state, BlockEntityType<T> type) {
-        return null;   // nothing to tick yet; stock is read on demand
-    }
 }
