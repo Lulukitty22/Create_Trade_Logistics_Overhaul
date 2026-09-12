@@ -84,6 +84,15 @@ public class TerrainApi {
 
     /** Body: i32 lod,x,y,z per requested section. Response: "VXS1", u32 count, u32 paletteLen, records. */
     public void sections(HttpExchange ex) throws IOException {
+        long startedAt = System.nanoTime();
+        try {
+            sections0(ex);
+        } finally {
+            Perf.record("web:terrain.sections", System.nanoTime() - startedAt);
+        }
+    }
+
+    private void sections0(HttpExchange ex) throws IOException {
         WorldEngine engine = engineOrNull();
         byte[] body = ex.getRequestBody().readAllBytes();
         if (engine == null) {

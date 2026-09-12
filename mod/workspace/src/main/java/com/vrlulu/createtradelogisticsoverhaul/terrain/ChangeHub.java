@@ -25,6 +25,7 @@ public final class ChangeHub {
 
     /** Called from Voxy's threads: must stay cheap and never throw. */
     public void record(long sectionKey) {
+        com.vrlulu.createtradelogisticsoverhaul.web.Perf.record("voxy:markDirty", 0);
         for (Subscription sub : subscriptions) {
             sub.add(sectionKey);
         }
