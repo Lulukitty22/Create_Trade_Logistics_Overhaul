@@ -2,6 +2,7 @@ package com.vrlulu.createtradelogisticsoverhaul.web;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.vrlulu.createtradelogisticsoverhaul.terrain.BlockAssets;
+import com.vrlulu.createtradelogisticsoverhaul.terrain.ChangeHub;
 import com.vrlulu.createtradelogisticsoverhaul.terrain.TerrainStore;
 import com.vrlulu.createtradelogisticsoverhaul.terrain.VoxyBridge;
 import me.cortex.voxy.common.world.WorldEngine;
@@ -9,6 +10,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.world.phys.Vec3;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
@@ -39,7 +41,7 @@ public class TerrainApi {
         Vec3 at = mc.player != null ? mc.player.position() : Vec3.ZERO;
         StringBuilder out = new StringBuilder(1 << 16);
         out.append("{\"name\":\"").append(worldName(mc)).append('"')
-                .append(",\"live\":false,\"textures\":true")
+                .append(",\"live\":true,\"textures\":true")
                 .append(",\"maxLod\":").append(store.maxLod())
                 .append(",\"snapshotTime\":").append(System.currentTimeMillis() / 1000)
                 .append(",\"lastChange\":null")
@@ -100,6 +102,54 @@ public class TerrainApi {
             out.put(r);
         }
         Http.bytes(ex, 200, "application/octet-stream", out.array());
+    }
+
+    /**
+     * Server-Sent Events: the keys of sections Voxy just changed, so the page re-fetches only those.
+     * Fed by the mixin on Voxy's markDirty (see ChangeHub).
+     */
+    public void events(HttpExchange ex) throws IOException {
+        ex.getResponseHeaders().add("Content-Type", "text/event-stream");
+        ex.getResponseHeaders().add("Cache-Control", "no-store");
+        ex.getResponseHeaders().add("Connection", "close");
+        ex.sendResponseHeaders(200, 0);
+        ChangeHub.Subscription sub = ChangeHub.get().subscribe();
+        long version = 0;
+        try (OutputStream out = ex.getResponseBody()) {
+            out.write("retry: 2000\n\n".getBytes(StandardCharsets.UTF_8));
+            out.flush();
+            long lastPing = System.currentTimeMillis();
+            while (true) {
+                long[] keys = sub.drain(1000);
+                if (keys.length == 0) {
+                    if (System.currentTimeMillis() - lastPing > 15_000) {
+                        out.write(": ping\n\n".getBytes(StandardCharsets.UTF_8));
+                        out.flush();
+                        lastPing = System.currentTimeMillis();
+                    }
+                    continue;
+                }
+                StringBuilder data = new StringBuilder(keys.length * 24 + 64);
+                data.append("event: changed\ndata: {\"v\":").append(++version).append(",\"paletteLen\":")
+                        .append(store.palette().size()).append(",\"keys\":[");
+                for (int i = 0; i < keys.length; i++) {
+                    long k = keys[i];
+                    data.append(i == 0 ? "" : ",").append('[').append(WorldEngine.getLevel(k)).append(',')
+                            .append(WorldEngine.getX(k)).append(',').append(WorldEngine.getY(k)).append(',')
+                            .append(WorldEngine.getZ(k)).append(']');
+                }
+                data.append("]}\n\n");
+                out.write(data.toString().getBytes(StandardCharsets.UTF_8));
+                out.flush();
+                lastPing = System.currentTimeMillis();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (IOException closed) {
+            // page navigated away
+        } finally {
+            ChangeHub.get().unsubscribe(sub);
+        }
     }
 
     /** "VXA1", u32 layer count, u32 size, then RGBA pixels per layer. */

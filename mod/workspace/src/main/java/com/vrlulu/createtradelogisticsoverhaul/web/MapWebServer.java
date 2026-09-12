@@ -50,7 +50,7 @@ public class MapWebServer {
     public void start() {
         // Bind IPv4 loopback explicitly: getLoopbackAddress() prefers ::1 on dual-stack Windows,
         // which leaves http://127.0.0.1:<port>/ unreachable.
-        Executor pool = Executors.newFixedThreadPool(4, r -> {
+        Executor pool = Executors.newFixedThreadPool(8, r -> {
             Thread t = new Thread(r, "clo-web");
             t.setDaemon(true);
             return t;
@@ -85,6 +85,7 @@ public class MapWebServer {
         server.createContext("/api/palette", wrap(terrain::palette));
         server.createContext("/api/terrain/roots", wrap(terrain::roots));
         server.createContext("/api/terrain/sections", wrap(terrain::sections));
+        server.createContext("/api/events", wrap(terrain::events));
         server.createContext("/api/assets/textures", wrap(terrain::textures));
         server.createContext("/api/assets/models", wrap(terrain::models));
         server.setExecutor(pool);
